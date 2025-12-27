@@ -75,6 +75,8 @@ Servo claw; // 爪子伺服馬達
 void motor(int L, int R); // 馬達控制 (L:左輪速度, R:右輪速度, 正值前進/負值後退)
 void forward();           // 前進
 void backward();          // 後退
+void s_Left();            // 左轉 (右輪停止)
+void s_Right();           // 右轉 (左輪停止)
 void m_Left();            // 左轉 (左輪停止)
 void m_Right();           // 右轉 (右輪停止)
 void b_Left();            // 急左轉 (左輪反轉)
@@ -92,7 +94,7 @@ void stop();              // 停止
 // TODO: 請宣告以下函式 (回傳 void，無參數)
 // test_encoder - 編碼馬達測試 (顯示編碼器計數值)
 // test_servo   - 伺服馬達測試 (手臂和爪子動作)
-// test_motor   - 馬達測試 (前進、後退、左轉、右轉)
+void test_motor(); // 馬達測試 (前進、後退、左轉、右轉)
 
 // ===== 自訂函式區 =====
 // TODO: 請在此區塊建立你的自訂函式
@@ -157,6 +159,14 @@ void backward()
 {
   motor(-255, -255);
 }
+void s_Left()
+{ // 左轉 (右輪停止)
+  motor(125, 255);
+}
+void s_Right()
+{ // 右轉 (左輪停止)
+  motor(255, 125);
+}
 void m_Left()
 { // 左轉 (左輪停止)
   motor(0, 255);
@@ -185,7 +195,24 @@ void stop()
 // --- 測試函式 ---
 // 功能：測試各元件是否正常運作
 // 提示：依序執行動作並用 Serial 輸出狀態
-
+void test_motor()
+{
+  Serial.println("Motor Test: Forward");
+  forward();
+  delay(1000);
+  Serial.println("Motor Test: Backward");
+  backward();
+  delay(1000);
+  Serial.println("Motor Test: Left");
+  m_Left();
+  delay(1000);
+  Serial.println("Motor Test: Right");
+  m_Right();
+  delay(1000);
+  Serial.println("Motor Test: Stop");
+  stop();
+  delay(500);
+}
 // ===== 主程式 =====
 void setup()
 {
@@ -232,7 +259,7 @@ void setup()
   ledcAttachPin(MOTOR_R_FWD, CH_R_FWD);   // 將腳位綁定到 PWM 通道
 
   // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
-  b_Right();
+  test_motor();
 }
 
 void loop()
