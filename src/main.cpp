@@ -72,14 +72,14 @@ Servo claw; // 爪子伺服馬達
 
 // --- 馬達控制 ---
 // TODO: 請宣告以下函式
-// motor(int L, int R) - 馬達控制 (L:左輪速度, R:右輪速度, 正值前進/負值後退)
-// forward  - 前進
-// backward - 後退
-// m_Left   - 左轉 (左輪停止)
-// m_Right  - 右轉 (右輪停止)
-// b_Left   - 急左轉 (左輪反轉)
-// b_Right  - 急右轉 (右輪反轉)
-// stop     - 停止
+void motor(int L, int R); // 馬達控制 (L:左輪速度, R:右輪速度, 正值前進/負值後退)
+void forward();           // 前進
+void backward();          // 後退
+void m_Left();            // 左轉 (左輪停止)
+void m_Right();           // 右轉 (右輪停止)
+void b_Left();            // 急左轉 (左輪反轉)
+void b_Right();           // 急右轉 (右輪反轉)
+void stop();              // 停止
 
 // --- 伺服馬達控制 ---
 // TODO: 請宣告以下函式 (回傳 void，無參數)
@@ -114,11 +114,70 @@ Servo claw; // 爪子伺服馬達
 // 提示：使用 ledcWrite(通道, PWM值) 控制輸出
 //       正值 → 正轉通道輸出，反轉通道=0
 //       負值 → 正轉通道=0，反轉通道輸出
-//
+void motor(int L, int R)
+{
+  if (L > 255)
+    L = 255;
+  else if (L < -255)
+    L = -255;
+  if (R > 255)
+    R = 255;
+  else if (R < -255)
+    R = -255;
+
+  if (L > 0) // 左輪正轉
+  {
+    ledcWrite(CH_L_FWD, L);
+    ledcWrite(CH_L_BWD, 0);
+  }
+  else // 左輪反轉
+  {
+    ledcWrite(CH_L_FWD, 0);
+    ledcWrite(CH_L_BWD, -L);
+  }
+  if (R > 0)
+  {
+    ledcWrite(CH_R_FWD, R);
+    ledcWrite(CH_R_BWD, 0);
+  }
+  else
+  {
+    ledcWrite(CH_R_FWD, 0);
+    ledcWrite(CH_R_BWD, -R);
+  }
+}
 // --- 動作函式 ---
 // 功能：前進、後退、左轉、右轉、停止等
 // 提示：呼叫馬達控制函式，帶入適當的左右輪速度
-//
+void forward()
+{
+  motor(255, 255);
+}
+void backward()
+{
+  motor(-255, -255);
+}
+void m_Left()
+{ // 左轉 (左輪停止)
+  motor(0, 255);
+}
+void m_Right()
+{ // 右轉 (右輪停止)
+  motor(255, 0);
+}
+void b_Left()
+{ // 急左轉 (左輪反轉)
+  motor(-255, 255);
+}
+void b_Right()
+{ // 急右轉 (右輪反轉)
+  motor(255, -255);
+}
+void stop()
+{
+  motor(0, 0);
+}
+
 // --- 伺服馬達控制 ---
 // 功能：手臂升降、爪子開合
 // 提示：使用 arm.write(角度) 和 claw.write(角度)
@@ -173,7 +232,7 @@ void setup()
   ledcAttachPin(MOTOR_R_FWD, CH_R_FWD);   // 將腳位綁定到 PWM 通道
 
   // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
-  // stop();
+  b_Right();
 }
 
 void loop()
