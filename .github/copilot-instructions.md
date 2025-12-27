@@ -2,96 +2,75 @@
 
 ## 專案概述
 
-這是一個 **ESP32 智慧小車機器人競賽**教學專案，使用 PlatformIO + Arduino 框架開發。主程式位於 `src/main.cpp`。
+ESP32 智慧小車機器人競賽教學專案，使用 **PlatformIO + Arduino** 框架。主程式：[src/main.cpp](../src/main.cpp)
 
-## 硬體架構
-
-### 感測器
-
-| 感測器       | 腳位       | 說明                           |
-| ------------ | ---------- | ------------------------------ |
-| 紅外線 LL    | GPIO 39    | 最左側循線                     |
-| 紅外線 L     | GPIO 32    | 左側循線                       |
-| 紅外線 M     | GPIO 33    | 中間循線                       |
-| 紅外線 R     | GPIO 34    | 右側循線                       |
-| 紅外線 RR    | GPIO 35    | 最右側循線                     |
-| 編碼器左 A/B | GPIO 18/19 | 左輪回饋                       |
-| 編碼器右 A/B | GPIO 23/5  | 右輪回饋                       |
-| HuskyLens    | I2C        | AI 視覺模組 (已引入但尚未使用) |
-
-### 執行器
-
-| 執行器   | 腳位                       | 說明                      |
-| -------- | -------------------------- | ------------------------- |
-| 左馬達   | GPIO 27 (正轉) / 13 (反轉) | PWM 通道 8/9              |
-| 右馬達   | GPIO 2 (正轉) / 4 (反轉)   | PWM 通道 10/11            |
-| 手臂伺服 | GPIO 14                    | 角度：升起 90° / 下降 15° |
-| 爪子伺服 | GPIO 15                    | 角度：開啟 90° / 關閉 0°  |
-
-## 開發工作流程
+## 開發指令
 
 ```bash
 pio run              # 編譯
 pio run -t upload    # 上傳至 ESP32
-pio device monitor   # 開啟 Serial Monitor (9600 baud)
+pio device monitor   # Serial Monitor (9600 baud)
 ```
 
-### PWM 通道分配規則
+## 硬體腳位速查
 
--   **Timer 0**：保留給伺服馬達 (`ESP32PWM::allocateTimer(0)`)
--   **Timer 2**：馬達 PWM 控制 (通道 8, 9, 10, 11)
--   PWM 頻率：75kHz，解析度：8-bit (0~255)
+| 元件               | 腳位           | 常數/通道                         |
+| ------------------ | -------------- | --------------------------------- |
+| 紅外線 LL/L/M/R/RR | 39/32/33/34/35 | `IR_LL_PIN` ~ `IR_RR_PIN`         |
+| 編碼器左 A/B       | 18/19          | `LEFT_ENCODER_A/B`                |
+| 編碼器右 A/B       | 23/5           | `RIGHT_ENCODER_A/B`               |
+| 左馬達正/反轉      | 27/13          | `CH_L_FWD(8)` / `CH_L_BWD(9)`     |
+| 右馬達正/反轉      | 2/4            | `CH_R_FWD(10)` / `CH_R_BWD(11)`   |
+| 手臂伺服           | 14             | `ARM_UP=90°` / `ARM_DOWN=15°`     |
+| 爪子伺服           | 15             | `CLAW_OPEN=90°` / `CLAW_CLOSE=0°` |
 
-## 程式碼慣例
+## 核心 API
 
 ### 馬達控制
 
 ```cpp
 motor(int L, int R);  // L/R: -255~255，正值前進、負值後退
-// 重要：左右輪速度需校正，目前 forward() 使用 motor(100, 165)
+// 動作函式：forward(), backward(), s_Left(), s_Right(),
+//          m_Left(), m_Right(), b_Left(), b_Right(), stop()
 ```
 
-預設動作函式：`forward()`, `backward()`, `m_Left()`, `m_Right()`, `b_Left()`, `b_Right()`, `stop()`
+### 待實作函式 (TODO)
 
-### 紅外線感測
+程式碼中標記 `TODO` 的函式需要學生完成：
 
-```cpp
-IR_X_read();  // 回傳 0 (白線) 或 1 (黑線)，閾值 IR_THRESHOLD=2000
-// X = LL(最左), L(左), M(中), R(右), RR(最右)
-```
+-   **紅外線讀取**：`IR_LL_read()` ~ `IR_RR_read()` — 回傳 0(白)/1(黑)，閾值 `IR_THRESHOLD=2000`
+-   **伺服控制**：`arm_up()`, `arm_down()`, `claw_open()`, `claw_close()`
+-   **測試函式**：`test_encoder()`, `test_servo()`
 
-### 伺服馬達
+## PWM 定時器規則（重要）
 
-```cpp
-arm_up(); arm_down();     // 手臂升降
-claw_open(); claw_close(); // 爪子開合
-```
+-   **Timer 0**：伺服馬達專用 — `ESP32PWM::allocateTimer(0)`
+-   **Timer 2**：馬達 PWM (通道 8-11)
+-   PWM 設定：75kHz / 8-bit (0~255)
 
-### 測試函式
-
--   `test_encoder()` - Serial 顯示編碼器計數 (放在 loop 中持續輸出)
--   `test_servo()` - 依序測試手臂和爪子動作
--   `test_motor()` - 依序測試前進、後退、左轉、右轉
+## 程式碼慣例
 
 ### 命名規則
 
--   腳位定義：`XXX_PIN`（如 `IR_LL_PIN`, `ARM_PIN`）
--   PWM 通道：`CH_X_XXX`（如 `CH_L_FWD`）
+-   腳位：`XXX_PIN` (如 `IR_LL_PIN`, `ARM_PIN`)
+-   PWM 通道：`CH_X_XXX` (如 `CH_L_FWD`)
 -   角度常數：`XXX_UP/DOWN/OPEN/CLOSE`
--   動作函式：使用中文註解說明用途
 
-## 函式庫依賴
+### 程式結構
 
-| 函式庫       | 用途        | 注意事項                               |
-| ------------ | ----------- | -------------------------------------- |
-| ESP32Encoder | 編碼器讀取  | 使用 `halfQuad` 模式                   |
-| QuickPID     | PID 控制    | 尚未實作                               |
-| ESP32Servo   | 伺服馬達    | 必須使用 Timer 0                       |
-| HUSKYLENS    | AI 視覺模組 | 需用 `#pragma GCC diagnostic` 抑制警告 |
+1. 腳位/常數定義 → 2. 前向宣告 → 3. 自訂函式區 → 4. setup() → 5. loop()
+
+## 函式庫注意事項
+
+| 函式庫       | 注意事項                                       |
+| ------------ | ---------------------------------------------- |
+| ESP32Encoder | 使用 `attachHalfQuad()` 模式                   |
+| ESP32Servo   | 必須先 `ESP32PWM::allocateTimer(0)`            |
+| HUSKYLENS    | 需 `#pragma GCC diagnostic` 包裹以抑制編譯警告 |
+| QuickPID     | 已引入但尚未實作                               |
 
 ## 擴展指引
 
--   新增感測器：在「腳位定義」區塊添加 `#define XXX_PIN`
--   新增伺服馬達：使用 Timer 0，參考現有 `arm`/`claw` 初始化方式
--   馬達動作函式保持簡潔，複雜邏輯放在 `loop()` 或獨立函式
--   HuskyLens 使用時需注意 I2C 初始化與編譯警告抑制
+-   新增伺服馬達：使用 Timer 0，參考 `arm`/`claw` 初始化
+-   新增感測器：在腳位定義區塊添加 `#define XXX_PIN`
+-   HuskyLens 初始化需設定 I2C 並處理編譯警告
