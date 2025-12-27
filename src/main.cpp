@@ -156,21 +156,21 @@ void setup()
   pinMode(IR_RR_PIN, INPUT);
 
   // --- 馬達 PWM 初始化 (Timer 2，Timer 0 預留給伺服馬達) ---
-  pinMode(MOTOR_L_BWD, OUTPUT);
-  ledcSetup(CH_L_BWD, PWM_FREQ, PWM_RES);
-  ledcAttachPin(MOTOR_L_BWD, CH_L_BWD);
+  pinMode(MOTOR_L_BWD, OUTPUT);           // 設定左馬達反轉腳位為輸出
+  ledcSetup(CH_L_BWD, PWM_FREQ, PWM_RES); // 設定 PWM 頻率與解析度 0~255
+  ledcAttachPin(MOTOR_L_BWD, CH_L_BWD);   // 將腳位綁定到 PWM 通道
 
-  pinMode(MOTOR_L_FWD, OUTPUT);
-  ledcSetup(CH_L_FWD, PWM_FREQ, PWM_RES);
-  ledcAttachPin(MOTOR_L_FWD, CH_L_FWD);
+  pinMode(MOTOR_L_FWD, OUTPUT);           // 設定左馬達正轉腳位為輸出
+  ledcSetup(CH_L_FWD, PWM_FREQ, PWM_RES); // 設定 PWM 頻率與解析度 0~255
+  ledcAttachPin(MOTOR_L_FWD, CH_L_FWD);   // 將腳位綁定到 PWM 通道
 
-  pinMode(MOTOR_R_BWD, OUTPUT);
-  ledcSetup(CH_R_BWD, PWM_FREQ, PWM_RES);
-  ledcAttachPin(MOTOR_R_BWD, CH_R_BWD);
+  pinMode(MOTOR_R_BWD, OUTPUT);           // 設定右馬達反轉腳位為輸出
+  ledcSetup(CH_R_BWD, PWM_FREQ, PWM_RES); // 設定 PWM 頻率與解析度 0~255
+  ledcAttachPin(MOTOR_R_BWD, CH_R_BWD);   // 將腳位綁定到 PWM 通道
 
-  pinMode(MOTOR_R_FWD, OUTPUT);
-  ledcSetup(CH_R_FWD, PWM_FREQ, PWM_RES);
-  ledcAttachPin(MOTOR_R_FWD, CH_R_FWD);
+  pinMode(MOTOR_R_FWD, OUTPUT);           // 設定右馬達正轉腳位為輸出
+  ledcSetup(CH_R_FWD, PWM_FREQ, PWM_RES); // 設定 PWM 頻率與解析度 0~255
+  ledcAttachPin(MOTOR_R_FWD, CH_R_FWD);   // 將腳位綁定到 PWM 通道
 
   // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
   // stop();
