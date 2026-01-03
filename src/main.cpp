@@ -69,7 +69,6 @@ int IR_L_read();  // 讀取左側紅外線感測器
 int IR_M_read();  // 讀取中間紅外線感測器
 int IR_R_read();  // 讀取右側紅外線感測器
 int IR_RR_read(); // 讀取最右側紅外線感測器
-
 // --- 馬達控制 ---
 // TODO: 請宣告以下函式
 void motor(int L, int R); // 馬達控制 (L:左輪速度, R:右輪速度, 正值前進/負值後退)
@@ -85,10 +84,11 @@ void stop();              // 停止
 
 // --- 伺服馬達控制 ---
 // TODO: 請宣告以下函式 (回傳 void，無參數)
-void arm_up();     // 手臂升起
-void arm_down();   // 手臂下降
-void claw_open();  // 爪子開啟
-void claw_close(); // 爪子關閉
+void arm_up();       // 手臂升起
+void arm_down();     // 手臂下降
+void claw_open();    // 爪子開啟
+void claw_close();   // 爪子關閉
+void test_encoder(); // 撿取物體動作
 
 void pickup_object();  // 撿取物體動作
 void release_object(); // 釋放物體動作
@@ -96,10 +96,22 @@ void release_object(); // 釋放物體動作
 // --- 測試指令 ---
 // TODO: 請宣告以下函式 (回傳 void，無參數)
 // test_encoder - 編碼馬達測試 (顯示編碼器計數值)
+void test_encoder()
+{
+  long leftCount = leftEncoder.getCount();
+  long rightCount = rightEncoder.getCount();
+
+  Serial.print("Left Encoder Count: ");
+  Serial.print(leftCount);
+  Serial.print("  Right Encoder Count: ");
+  Serial.println(rightCount);
+};
 // test_servo   - 伺服馬達測試 (手臂和爪子動作)
 void test_motor(); // 馬達測試 (前進、後退、左轉、右轉)
 // ====紅外線測試宣告====
 void test_IR(); // 紅外線感測器測試 (顯示各感測器數值)
+// =========尋機功能===========
+void trail(); // 尋機功能
 
 // ===== 自訂函式區 =====
 // TODO: 請在此區塊建立你的自訂函式
@@ -182,39 +194,41 @@ void motor(int L, int R)
 // 提示：呼叫馬達控制函式，帶入適當的左右輪速度
 void forward()
 {
-  motor(255, 255);
+  motor(55, 65);
 }
 void backward()
 {
-  motor(-255, -255);
+  motor(-55, -55);
 }
 void s_Left()
 { // 左轉 (右輪停止)
-  motor(125, 255);
+  motor(-75, 55);
 }
 void s_Right()
 { // 右轉 (左輪停止)
-  motor(255, 125);
+  motor(55, -75);
 }
 void m_Left()
 { // 左轉 (左輪停止)
-  motor(0, 255);
+  motor(0, 55);
 }
 void m_Right()
 { // 右轉 (右輪停止)
-  motor(255, 0);
+  motor(55, -00);
 }
 void b_Left()
 { // 急左轉 (左輪反轉)
-  motor(-255, 255);
+  motor(-55, 55);
 }
 void b_Right()
 { // 急右轉 (右輪反轉)
-  motor(255, -255);
+  motor(55, -55);
 }
 void stop()
 {
   motor(0, 0);
+  leftEncoder.clearCount();
+  rightEncoder.clearCount();
 }
 
 // --- 伺服馬達控制 ---
@@ -291,6 +305,38 @@ void test_IR()
   Serial.println(IR_RR_read());
   delay(100);
 }
+
+//=======循跡功能=========
+void trail()
+{
+  if (IR_M_read() == 1)
+  {
+
+    if (IR_L_read() == 1 && IR_R_read() == 0)
+    {
+      m_Left();
+    }
+    else if (IR_L_read() == 0 && IR_R_read() == 1)
+    {
+      m_Right();
+    }
+    else
+    {
+      forward();
+    }
+  }
+  else
+  {
+    if (IR_L_read() == 1 && IR_R_read() == 0)
+    {
+      b_Left();
+    }
+    else if (IR_L_read() == 0 && IR_R_read() == 1)
+    {
+      b_Right();
+    }
+  }
+}
 // ===== 主程式 =====
 void setup()
 {
@@ -337,9 +383,31 @@ void setup()
   ledcAttachPin(MOTOR_R_FWD, CH_R_FWD);   // 將腳位綁定到 PWM 通道
 
   // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
-  pickup_object();
-  delay(3000);
-  release_object();
+
+  // while (!((IR_LL_read() == 1) || (IR_RR_read() == 1)))
+  // {
+  //   trail();
+  // }
+  // stop();
+  // delay(1000);
+  // while (!((IR_LL_read() == 1) || (IR_RR_read() == 1)))
+  // {
+  //   trail();
+  // }
+  // stop();
+  // delay(1000);
+  // while (!((IR_R_read() == 1) && (IR_M_read() == 1)) || ((IR_L_read() == 1) || (IR_M_read() == 1)))
+  // {
+  //   stop();
+  //   delay(1000);
+  //   b_Left();
+  //   b_Left();
+  // }
+  while (true)
+  {
+    test_encoder();
+    delay(500);
+  };
 }
 
 void loop()
