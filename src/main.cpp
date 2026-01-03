@@ -23,7 +23,7 @@ Servo claw; // 爪子伺服馬達
 
 // ===== 伺服馬達角度設定 =====
 #define ARM_UP 90    // 手臂升起角度
-#define ARM_DOWN 15  // 手臂下降角度
+#define ARM_DOWN 0   // 手臂下降角度
 #define CLAW_OPEN 90 // 爪子開啟角度
 #define CLAW_CLOSE 0 // 爪子關閉角度
 
@@ -64,11 +64,11 @@ Servo claw; // 爪子伺服馬達
 
 // --- 紅外線感測器 ---
 // TODO: 請宣告以下函式 (回傳 int，無參數)
-// IR_LL_read - 讀取最左側紅外線感測器
-// IR_L_read  - 讀取左側紅外線感測器
-// IR_M_read  - 讀取中間紅外線感測器
-// IR_R_read  - 讀取右側紅外線感測器
-// IR_RR_read - 讀取最右側紅外線感測器
+int IR_LL_read(); // 讀取最左側紅外線感測器
+int IR_L_read();  // 讀取左側紅外線感測器
+int IR_M_read();  // 讀取中間紅外線感測器
+int IR_R_read();  // 讀取右側紅外線感測器
+int IR_RR_read(); // 讀取最右側紅外線感測器
 
 // --- 馬達控制 ---
 // TODO: 請宣告以下函式
@@ -85,16 +85,21 @@ void stop();              // 停止
 
 // --- 伺服馬達控制 ---
 // TODO: 請宣告以下函式 (回傳 void，無參數)
-// arm_up    - 手臂升起
-// arm_down  - 手臂下降
-// claw_open  - 爪子開啟
-// claw_close - 爪子關閉
+void arm_up();     // 手臂升起
+void arm_down();   // 手臂下降
+void claw_open();  // 爪子開啟
+void claw_close(); // 爪子關閉
+
+void pickup_object();  // 撿取物體動作
+void release_object(); // 釋放物體動作
 
 // --- 測試指令 ---
 // TODO: 請宣告以下函式 (回傳 void，無參數)
 // test_encoder - 編碼馬達測試 (顯示編碼器計數值)
 // test_servo   - 伺服馬達測試 (手臂和爪子動作)
 void test_motor(); // 馬達測試 (前進、後退、左轉、右轉)
+// ====紅外線測試宣告====
+void test_IR(); // 紅外線感測器測試 (顯示各感測器數值)
 
 // ===== 自訂函式區 =====
 // TODO: 請在此區塊建立你的自訂函式
@@ -110,7 +115,31 @@ void test_motor(); // 馬達測試 (前進、後退、左轉、右轉)
 // --- 紅外線感測器 ---
 // 功能：讀取感測器數值，回傳 0 (白線) 或 1 (黑線)
 // 提示：使用 analogRead(腳位) 讀取，與 IR_THRESHOLD 比較
-//
+int IR_LL_read()
+{
+  int sensorvalue = analogRead(IR_LL_PIN);
+  return (sensorvalue > IR_THRESHOLD) ? 1 : 0;
+}
+int IR_L_read()
+{
+  int sensorvalue = analogRead(IR_L_PIN);
+  return (sensorvalue > IR_THRESHOLD) ? 1 : 0;
+}
+int IR_M_read()
+{
+  int sensorvalue = analogRead(IR_M_PIN);
+  return (sensorvalue > IR_THRESHOLD) ? 1 : 0;
+}
+int IR_R_read()
+{
+  int sensorvalue = analogRead(IR_R_PIN);
+  return (sensorvalue > IR_THRESHOLD) ? 1 : 0;
+}
+int IR_RR_read()
+{
+  int sensorvalue = analogRead(IR_RR_PIN);
+  return (sensorvalue > IR_THRESHOLD) ? 1 : 0;
+}
 // --- 馬達控制 ---
 // 功能：控制左右馬達速度 (-255~255)
 // 提示：使用 ledcWrite(通道, PWM值) 控制輸出
@@ -191,7 +220,42 @@ void stop()
 // --- 伺服馬達控制 ---
 // 功能：手臂升降、爪子開合
 // 提示：使用 arm.write(角度) 和 claw.write(角度)
-//
+
+void arm_up()
+{
+  arm.write(ARM_UP);
+}
+void arm_down()
+{
+  arm.write(ARM_DOWN);
+}
+void claw_open()
+{
+  claw.write(CLAW_OPEN);
+}
+void claw_close()
+{
+  claw.write(CLAW_CLOSE);
+}
+
+void pickup_object()
+{
+  claw_open();
+  delay(200); // 等待爪子開啟
+  arm_down();
+  delay(200); // 等待手臂下降
+  claw_close();
+  delay(200); // 等待爪子關閉
+  arm_up();
+  delay(200); // 等待手臂升起
+}
+void release_object()
+{
+  arm_down();
+  delay(200); // 等待手臂下降
+  claw_open();
+  delay(200); // 等待爪子開啟
+}
 // --- 測試函式 ---
 // 功能：測試各元件是否正常運作
 // 提示：依序執行動作並用 Serial 輸出狀態
@@ -212,6 +276,20 @@ void test_motor()
   Serial.println("Motor Test: Stop");
   stop();
   delay(500);
+}
+void test_IR()
+{
+  Serial.print("IR_LL: ");
+  Serial.print(IR_LL_read());
+  Serial.print(" IR_L: ");
+  Serial.print(IR_L_read());
+  Serial.print(" IR_M: ");
+  Serial.print(IR_M_read());
+  Serial.print(" IR_R: ");
+  Serial.print(IR_R_read());
+  Serial.print(" IR_RR: ");
+  Serial.println(IR_RR_read());
+  delay(100);
 }
 // ===== 主程式 =====
 void setup()
@@ -259,7 +337,9 @@ void setup()
   ledcAttachPin(MOTOR_R_FWD, CH_R_FWD);   // 將腳位綁定到 PWM 通道
 
   // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
-  test_motor();
+  pickup_object();
+  delay(3000);
+  release_object();
 }
 
 void loop()
