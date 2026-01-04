@@ -2,6 +2,9 @@
 #include <ESP32Encoder.h>
 #include <QuickPID.h>
 #include <ESP32Servo.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wreturn-type"
 #pragma GCC diagnostic ignored "-Wunused-variable"
@@ -16,6 +19,16 @@ ESP32Encoder rightEncoder;
 // ===== 伺服馬達物件 =====
 Servo arm;  // 手臂伺服馬達
 Servo claw; // 爪子伺服馬達
+
+// ===== OLED (SSD1306) =====
+#define OLED_WIDTH 128
+#define OLED_HEIGHT 64
+#define OLED_RESET -1
+#define OLED_ADDR 0x3C
+#define OLED_SDA 21
+#define OLED_SCL 22
+Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET);
+bool oled_ready = false;
 
 // ===== 伺服馬達腳位定義 =====
 #define ARM_PIN 14  // 手臂伺服馬達腳位
@@ -64,23 +77,30 @@ Servo claw; // 爪子伺服馬達
 
 // --- 紅外線感測器 ---
 // TODO: 請宣告以下函式 (回傳 int，無參數)
-int IR_LL_read(); // 讀取最左側紅外線感測器
-int IR_L_read();  // 讀取左側紅外線感測器
-int IR_M_read();  // 讀取中間紅外線感測器
-int IR_R_read();  // 讀取右側紅外線感測器
-int IR_RR_read(); // 讀取最右側紅外線感測器
+int IR_LL_read();           // 讀取最左側紅外線感測器
+int IR_L_read();            // 讀取左側紅外線感測器
+int IR_M_read();            // 讀取中間紅外線感測器
+int IR_R_read();            // 讀取右側紅外線感測器
+int IR_RR_read();           // 讀取最右側紅外線感測器
+void oled_init();           // OLED 初始化
+void oled_show_ir_status(); // OLED 顯示紅外線狀態
 // --- 馬達控制 ---
 // TODO: 請宣告以下函式
-void motor(int L, int R); // 馬達控制 (L:左輪速度, R:右輪速度, 正值前進/負值後退)
-void forward();           // 前進
-void backward();          // 後退
-void s_Left();            // 左轉 (右輪停止)
-void s_Right();           // 右轉 (左輪停止)
-void m_Left();            // 左轉 (左輪停止)
-void m_Right();           // 右轉 (右輪停止)
-void b_Left();            // 急左轉 (左輪反轉)
-void b_Right();           // 急右轉 (右輪反轉)
-void stop();              // 停止
+void motor(int L, int R);   // 馬達控制 (L:左輪速度, R:右輪速度, 正值前進/負值後退)
+void forward();             // 前進
+void backward();            // 後退
+void s_Left();              // 左轉 (右輪停止)
+void s_Right();             // 右轉 (左輪停止)
+void m_Left();              // 左轉 (左輪停止)
+void m_Right();             // 右轉 (右輪停止)
+void b_Left();              // 急左轉 (左輪反轉)
+void b_Right();             // 急右轉 (右輪反轉)
+void stop();                // 停止
+void p_fw(int distance);    // 設定距離前進
+void p_bw(int distance);    // 設定距離後退
+void p_left(int distance);  // 設定距離左轉
+void p_right(int distance); // 設定距離右轉
+void p_test(int distance);  // 距離測試
 
 // --- 伺服馬達控制 ---
 // TODO: 請宣告以下函式 (回傳 void，無參數)
@@ -152,6 +172,49 @@ int IR_RR_read()
   int sensorvalue = analogRead(IR_RR_PIN);
   return (sensorvalue > IR_THRESHOLD) ? 1 : 0;
 }
+// --- OLED 顯示 ---
+void oled_init()
+{
+  Wire.begin(OLED_SDA, OLED_SCL);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR))
+  {
+    Serial.println("SSD1306 init failed");
+    return;
+  }
+  oled_ready = true;
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+}
+
+void oled_show_ir_status()
+{
+  if (!oled_ready)
+  {
+    return;
+  }
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.print("IR:L ");
+  display.print(IR_LL_read());
+  display.print(" ");
+  display.print(IR_L_read());
+  display.print(" ");
+  display.print(IR_M_read());
+  display.print(" ");
+  display.print(IR_R_read());
+  display.print(" ");
+  display.print(IR_RR_read());
+  display.print(" R");
+  display.println(" ");
+  display.print("Encoder L:");
+  display.print(leftEncoder.getCount());
+  display.print(" R:");
+  display.println(rightEncoder.getCount());
+  display.display();
+}
 // --- 馬達控制 ---
 // 功能：控制左右馬達速度 (-255~255)
 // 提示：使用 ledcWrite(通道, PWM值) 控制輸出
@@ -194,7 +257,7 @@ void motor(int L, int R)
 // 提示：呼叫馬達控制函式，帶入適當的左右輪速度
 void forward()
 {
-  motor(55, 65);
+  motor(55, 58);
 }
 void backward()
 {
@@ -227,8 +290,67 @@ void b_Right()
 void stop()
 {
   motor(0, 0);
+  // leftEncoder.clearCount();
+  // rightEncoder.clearCount();
+}
+
+void p_test(int distance)
+{
+}
+
+void p_fw(int distance)
+{
+  long targetCount = distance; // 假設 1 單位距離對應 1 編碼器計數值
   leftEncoder.clearCount();
   rightEncoder.clearCount();
+  forward();
+  while (true)
+  {
+    long leftCount = leftEncoder.getCount();
+    long rightCount = rightEncoder.getCount();
+    if (leftCount >= targetCount || rightCount >= targetCount)
+    {
+      break;
+    }
+    delay(1);
+  }
+  stop();
+}
+void p_bw(int distance)
+{
+  long targetCount = distance; // 假設 1 單位距離對應 1 編碼器計數值
+  leftEncoder.clearCount();
+  rightEncoder.clearCount();
+  backward();
+  while (true)
+  {
+    long leftCount = leftEncoder.getCount();
+    long rightCount = rightEncoder.getCount();
+    if (leftCount <= -targetCount || rightCount <= -targetCount)
+    {
+      break;
+    }
+    delay(1);
+  }
+  stop();
+}
+void p_left(int distance)
+{
+  long targetCount = distance; // 假設 1 單位距離對應 1 編碼器計數值
+  leftEncoder.clearCount();
+  rightEncoder.clearCount();
+  b_Left();
+  while (true)
+  {
+    long leftCount = leftEncoder.getCount();
+    long rightCount = rightEncoder.getCount();
+    if (abs(leftCount) >= targetCount || abs(rightCount) >= targetCount)
+    {
+      break;
+    }
+    delay(1);
+  }
+  stop();
 }
 
 // --- 伺服馬達控制 ---
@@ -342,6 +464,9 @@ void setup()
 {
   Serial.begin(9600);
 
+  // --- OLED 初始化 ---
+  oled_init();
+
   // --- 伺服馬達定時器分配 (Timer 0 給伺服馬達) ---
   ESP32PWM::allocateTimer(0);
 
@@ -403,9 +528,11 @@ void setup()
   //   b_Left();
   //   b_Left();
   // }
+
   while (true)
   {
     test_encoder();
+    oled_show_ir_status();
     delay(500);
   };
 }
