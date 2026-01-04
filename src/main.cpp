@@ -296,6 +296,68 @@ void stop()
 
 void p_test(int distance)
 {
+  long targetCount = distance; // 假設 1 單位距離對應 1 編碼器計數值
+  leftEncoder.clearCount();
+  rightEncoder.clearCount();
+
+  // 快速前進到接近目標（留20的餘量）
+  motor(55, 0); // 只控制左輪
+  while (true)
+  {
+    long leftCount = leftEncoder.getCount();
+    if (leftCount >= targetCount - 20)
+    {
+      break;
+    }
+    delay(1);
+  }
+
+  // 精調階段：低速前進到目標附近
+  motor(20, 0); // 只控制左輪
+  delay(50);
+  stop();
+
+  // 反復調整直到誤差小於10
+  const int TOLERANCE = 10;
+  const int MIN_SPEED = 25; // 最小驅動速度（克服靜摩擦力）
+  unsigned long maxAttempts = 100;
+  unsigned long attempts = 0;
+
+  while (attempts < maxAttempts)
+  {
+    long leftCount = leftEncoder.getCount();
+    long error = leftCount - targetCount;
+
+    // 誤差在容差範圍內，完成
+    if (abs(error) < TOLERANCE)
+    {
+      break;
+    }
+
+    // 根據誤差大小動態計算調整速度
+    int adjustSpeed = map(abs(error), TOLERANCE, 100, MIN_SPEED, 50);
+    adjustSpeed = constrain(adjustSpeed, MIN_SPEED, 50);
+
+    // 超過目標太多，反向調整
+    if (error > TOLERANCE)
+    {
+      motor(-adjustSpeed, 0); // 只控制左輪
+      delay(30);
+      stop();
+    }
+    // 未達目標，繼續前進
+    else if (error < -TOLERANCE)
+    {
+      motor(adjustSpeed, 0); // 只控制左輪
+      delay(30);
+      stop();
+    }
+
+    delay(50);
+    attempts++;
+  }
+
+  stop();
 }
 
 void p_fw(int distance)
@@ -528,7 +590,7 @@ void setup()
   //   b_Left();
   //   b_Left();
   // }
-
+  p_test(1000);
   while (true)
   {
     test_encoder();
