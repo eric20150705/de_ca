@@ -153,6 +153,7 @@ void claw_close(); // 爪子關閉（寫入 CLAW_CLOSE 角度）
 // 複合伺服動作
 void pickup_object();  // 撿取物體動作序列（張爪 → 下降 → 夾爪 → 上升）
 void release_object(); // 釋放物體動作序列（下降 → 張爪）
+void prepare_pickup(); // 打開爪子並且降下手臂，準備撿取物體
 
 // --- 測試函式 =====
 // 功能：逐一測試各硬體元件是否正常運作，結果透過 Serial 或 OLED 輸出
@@ -165,7 +166,8 @@ void test_speed();     // 即時速度測試：每 100ms 印出左右輪速度�
 // --- 速度閉環控制函式 ---
 // 功能：根據目標速度動態調整 PWM，不受電池電量影響
 void speed_control(float L_target, float R_target); // 速度閉環控制（輸入目標速度 c/週期）
-void p_fw_v2(int distance);                         // 新版前進：速度閉環 + 左右同步修正
+void p_fw_v2(int distance);
+void p_bw_v2(int distance); // 新版前進：速度閉環 + 左右同步修正
 
 // --- 循跡功能 ---
 void trail(); // 循跡邏輯（根據 IR 陣列自動調整方向以跟隨黑線）
@@ -578,6 +580,15 @@ void release_object()
   delay(200);
 }
 
+void prepare_pickup()
+{
+  // 打開爪子並且降下手臂，準備撿取物體
+  claw_open(); // 張爪子
+  delay(200);
+  arm_down(); // 放下手臂
+  delay(200);
+}
+
 // ============ 測試函式 ============
 // 用於驗證硬體是否正常工作
 
@@ -799,8 +810,8 @@ void speed_control(float L_target, float R_target)
   R_pwm = R_pwm + R_error * SPEED_KP;
 
   // --- 限制 PWM 範圍（0~255）---
-  L_pwm = constrain(L_pwm, 0, 255);
-  R_pwm = constrain(R_pwm, 0, 255);
+  L_pwm = constrain(L_pwm, -255, 255);
+  R_pwm = constrain(R_pwm, -255, 255);
 
   // --- 輸出到馬達 ---
   motor((int)L_pwm, (int)R_pwm);
@@ -871,6 +882,108 @@ void p_fw_v2(int distance)
     long L_count = leftEncoder.getCount();
     long R_count = rightEncoder.getCount();
     long avgCount = (L_count + R_count) / 2; // 平均計數（代表行進距離）
+
+    // === 終止條件：到達目標 ===
+    if (avgCount >= distance - TOLERANCE)
+    {
+      break;
+    }
+
+    // === 計算目標速度（距離減速）===
+    float progress = (float)avgCount / distance; // 進度 0.0 ~ 1.0
+
+    float targetSpeed;
+    if (progress < DECEL_START)
+    {
+      targetSpeed = BASE_SPEED; // 尚未到減速點 → 全速
+    }
+    else
+    {
+      // 線性減速：用 map 將進度映射到速度
+      // map(值, 原始最小, 原始最大, 目標最小, 目標最大)
+      long decelStartCount = distance * DECEL_START;                                 // 開始減速的計數值
+      targetSpeed = map(avgCount, decelStartCount, distance, BASE_SPEED, MIN_SPEED); // map將目前count映射到逐漸變慢的速度
+    }
+
+    // === 呼叫速度閉環控制（左右輪目標速度相同）===
+    speed_control(targetSpeed, targetSpeed);
+
+    // 【步驟 5】若要開啟左右同步修正，取消以下註解：
+    // long diffError = L_count - R_count;  // 左輪 - 右輪
+    // float correction = diffError * SYNC_KP;
+    // speed_control(targetSpeed - correction, targetSpeed + correction);
+  }
+
+  // --- 停止 ---
+  stop();
+  L_pwm = 0;
+  R_pwm = 0;
+}
+void p_bw_v2(int distance)
+{
+  // ===== 新版前進函式（速度閉環 + 同步修正 + 距離減速）=====
+  // 輸入：distance = 目標距離（編碼器計數）
+  // 特點：
+  //   1. 速度閉環：根據目標速度動態調整 PWM，不受電量影響
+  //   2. 左右同步：即時修正左右輪差異，保持直線
+  //   3. 距離減速：接近目標時自動減速，避免超距
+  //
+  // ===== 校正流程（請依序進行）=====
+  //
+  // 【步驟 1】測極限速度 → 決定 BASE_SPEED
+  //    - 呼叫 test_max_speed()，記錄左右輪 c/20ms
+  //    - 以較慢的輪子為基準，乘 70~80% 作為 BASE_SPEED
+  //    - 例：左輪 85、右輪 88 → BASE_SPEED = 85 * 0.7 ≈ 60
+  //
+  // 【步驟 2】關閉 SYNC_KP → 單獨調 SPEED_KP
+  //    - 先把 SYNC_KP 設為 0（排除左右同步的干擾）
+  //    - 觀察車子運動是否平順（不抖、不頓）
+  //    - 若一頓一頓 → SPEED_KP 太大，往下調（例：5.0 → 0.5 → 0.1）
+  //    - 若反應太慢 → SPEED_KP 太小，往上調
+  //    - 目標：平順加速、穩定巡航
+  //
+  // 【步驟 3】調 MIN_SPEED（從低往高調）
+  //    - 觀察減速階段是否「停了又動」（速度降太低，馬達停轉再啟動）
+  //    - 若有此現象 → MIN_SPEED 太低，往上調（例：10 → 20 → 30）
+  //    - 目標：減速過程平滑連續，不會中途停頓
+  //
+  // 【步驟 4】調 TOLERANCE（補償慣性超距）
+  //    - 讓車跑完後，讀取編碼器計數，看超過目標多少
+  //    - 若超距 50 → TOLERANCE 設 50（提早停止補償慣性）
+  //    - 可同時調 DECEL_START：提早減速 = 減少超距
+  //
+  // 【步驟 5】開啟 SYNC_KP → 調到走直線不晃(尚未完成)
+  //    - 確認步驟 2-4 完成後，將 SYNC_KP 設為小值（例：0.1）
+  //    - 若走歪 → 加大 SYNC_KP
+  //    - 若左右晃動 → SYNC_KP 太大，調小
+  //    - 目標：直線行駛，不偏移也不晃
+  //
+  // ===== 參數說明 =====
+
+  // --- 參數設定（根據上述流程校正後的值）---
+  // 實測極限：左輪 85 c/20ms、右輪 88 c/20ms
+  // 以較慢的左輪為基準，設定 70%（保守）
+  const float BASE_SPEED = -60.0; // 基礎目標速度（c/週期），約 70% 極限
+  const float MIN_SPEED = -20.0;  // 最低目標速度（c/週期），需高於馬達死區
+  const float DECEL_START = 0.6;  // 開始減速的進度（0.6 = 走 60% 後開始減速）
+  const int TOLERANCE = 100;       // 到達容差（補償慣性超距）
+  // const float SYNC_KP = 0.1;  // 【步驟 5】左右同步修正係數（目前關閉）
+
+  // --- 清除編碼器 ---
+  leftEncoder.clearCount();
+  rightEncoder.clearCount();
+
+  // --- 重置 PWM 累積值 ---
+  L_pwm = -50; // 給一個初始 PWM，加速啟動
+  R_pwm = -50;
+
+  // --- 主控制迴圈 ---
+  while (true)
+  {
+    // 讀取當前計數（用於計算進度）
+    long L_count = leftEncoder.getCount();
+    long R_count = rightEncoder.getCount();
+    long avgCount = abs((L_count + R_count)) / 2; // 平均計數（代表行進距離）
 
     // === 終止條件：到達目標 ===
     if (avgCount >= distance - TOLERANCE)
@@ -1010,10 +1123,10 @@ void setup()
   stop(); // 初始化時停止馬達
   // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
   // *馬達測試*
-  // release_object();
-  // delay(1000);
-  // pickup_object();
-  p_fw_v2(4000); // 前進 4000 計數
+  p_fw_v2(4500); // 前進 4200 計數
+  prepare_pickup();
+  pickup_object();
+  p_bw_v2(4500);
   //* OLED：持續顯示紅外線狀態和編碼器值
   while (true)
   {
