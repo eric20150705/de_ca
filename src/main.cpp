@@ -38,6 +38,12 @@ Servo claw; // 爪子伺服馬達（負責開啟/關閉）
 Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET); // OLED 物件
 bool oled_ready = false;                                              // OLED 初始化標誌位
 
+// ===== 極限速度測試結果（全域變數）=====
+// 用於儲存 test_max_speed() 的測試結果，讓 oled_show_ir_status() 也能顯示
+long maxSpeed_L = 0;          // 左輪極限速度（c/100ms）
+long maxSpeed_R = 0;          // 右輪極限速度（c/100ms）
+bool maxSpeed_tested = false; // 是否已測試過
+
 // ===== 伺服馬達腳位定義 =====
 // 使用 ESP32 的 GPIO 腳位連接 SG90 伺服馬達（PWM 控制）
 #define ARM_PIN 14  // 手臂伺服馬達訊號腳位
@@ -82,6 +88,20 @@ bool oled_ready = false;                                              // OLED �
 #define IR_THRESHOLD 2000 // 紅外線感測閾值：>2000 判定為黑線，<2000 為白線
 #define PWM_FREQ 75000    // PWM 頻率 75kHz（高頻降低馬達噪音和脈動）
 #define PWM_RES 8         // PWM 解析度 8-bit，即 0~255 共 256 階
+
+// ===== 速度閉環控制參數 =====
+// 速度控制週期（毫秒）：根據 test_max_speed() 測得的極限速度調整
+// 建議：每週期計數變化 ≥ 5 較穩定
+// 例如：極限 45 c/100ms → 用 20ms（約 9c）；極限 20 c/100ms → 用 50ms（約 10c）
+#define SPEED_CONTROL_PERIOD 20 // 速度控制週期，單位 ms
+
+// SPEED_KP：速度閉環比例係數
+// - 作用：PWM 調整量 = (目標速度 - 實際速度) * Kp
+// - 調整方法：
+//   - 太大（例：5.0）→ 車子一頓一頓、抖動 → 往下調
+//   - 太小（例：0.01）→ 反應慢、達不到目標速度 → 往上調
+//   - 建議從 0.1 開始，逐步微調至平順
+#define SPEED_KP 0.1 // 速度控制比例係數
 
 // ===== 函式前向宣告 =====
 // 提示：函式宣告格式為 回傳型別 函式名稱(參數);
@@ -136,9 +156,16 @@ void release_object(); // 釋放物體動作序列（下降 → 張爪）
 
 // --- 測試函式 =====
 // 功能：逐一測試各硬體元件是否正常運作，結果透過 Serial 或 OLED 輸出
-void test_motor();   // 馬達測試（順序執行：前進、後退、左轉、右轉、停止）
-void test_IR();      // 紅外線感測器測試（輸出 5 路感測值）
-void test_encoder(); // 編碼器測試（輸出左右馬達計數值）
+void test_motor();     // 馬達測試（順序執行：前進、後退、左轉、右轉、停止）
+void test_IR();        // 紅外線感測器測試（輸出 5 路感測值）
+void test_encoder();   // 編碼器測試（輸出左右馬達計數值）
+void test_max_speed(); // 極限速度測試：PWM=255 測量左右輪最大 c/100ms
+void test_speed();     // 即時速度測試：每 100ms 印出左右輪速度，用於觀察
+
+// --- 速度閉環控制函式 ---
+// 功能：根據目標速度動態調整 PWM，不受電池電量影響
+void speed_control(float L_target, float R_target); // 速度閉環控制（輸入目標速度 c/週期）
+void p_fw_v2(int distance);                         // 新版前進：速度閉環 + 左右同步修正
 
 // --- 循跡功能 ---
 void trail(); // 循跡邏輯（根據 IR 陣列自動調整方向以跟隨黑線）
@@ -226,10 +253,27 @@ void oled_show_ir_status()
 
   // 第二行：顯示編碼器計數值
   display.println(" ");
-  display.print("Encoder L:");
+  display.print("Enc L:");
   display.print(leftEncoder.getCount()); // 左馬達計數
   display.print(" R:");
   display.println(rightEncoder.getCount()); // 右馬達計數
+
+  // 第三行：顯示極限速度測試結果（如果有）
+  if (maxSpeed_tested)
+  {
+    display.println("--- Max Speed ---");
+    display.print("L:");
+    display.print(maxSpeed_L);
+    display.print(" R:");
+    display.print(maxSpeed_R);
+    display.println(" c/100ms");
+
+    // 建議 c/20ms
+    display.print("c/20ms: L");
+    display.print(maxSpeed_L / 5);
+    display.print(" R");
+    display.print(maxSpeed_R / 5);
+  }
 
   // 將緩衝區內容寫入 OLED 顯示器
   display.display();
@@ -573,6 +617,298 @@ void test_IR()
   delay(100);
 }
 
+void test_max_speed()
+{
+  // ===== 極限速度測試 =====
+  // 目的：測量 PWM=255 時左右輪的最大速度（c/100ms）
+  // 用途：作為設定目標速度的參考上限
+  // 注意：測量過程不輸出任何訊息，專心量測確保準確
+  //       結果會顯示在 OLED 上（適合斷線測試）
+
+  // 清除編碼器
+  leftEncoder.clearCount();
+  rightEncoder.clearCount();
+
+  // 全速前進
+  motor(255, 255);
+
+  // 等待 500ms 讓速度穩定
+  delay(500);
+
+  // 測量 10 次，每次 100ms（專心量測，不輸出）
+  long L_total = 0; // 左輪速度總和
+  long R_total = 0; // 右輪速度總和
+  const int SAMPLES = 10;
+
+  for (int i = 0; i < SAMPLES; i++)
+  {
+    // 記錄起始計數
+    long L_start = leftEncoder.getCount();
+    long R_start = rightEncoder.getCount();
+
+    // 等待 100ms
+    delay(100);
+
+    // 計算這 100ms 內的計數變化量（即速度 c/100ms）
+    long L_speed = leftEncoder.getCount() - L_start;
+    long R_speed = rightEncoder.getCount() - R_start;
+
+    // 累加（不印出，專心量測）
+    L_total += L_speed;
+    R_total += R_speed;
+  }
+
+  // 停止馬達
+  stop();
+
+  // 計算平均值
+  long L_avg = L_total / SAMPLES;
+  long R_avg = R_total / SAMPLES;
+
+  // === 儲存結果到全域變數 ===
+  maxSpeed_L = L_avg;
+  maxSpeed_R = R_avg;
+  maxSpeed_tested = true;
+
+  // === 顯示結果到 OLED ===
+  if (oled_ready)
+  {
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+
+    // 標題
+    display.setCursor(0, 0);
+    display.println("=== Max Speed ===");
+
+    // 左輪結果
+    display.print("L: ");
+    display.print(L_avg);
+    display.println(" c/100ms");
+
+    // 右輪結果
+    display.print("R: ");
+    display.print(R_avg);
+    display.println(" c/100ms");
+
+    // 分隔線
+    display.println("--- Suggest ---");
+
+    // 建議目標速度（80%）
+    display.print("80%: L");
+    display.print(L_avg * 80 / 100);
+    display.print(" R");
+    display.println(R_avg * 80 / 100);
+
+    // 換算成 c/20ms
+    display.print("c/20ms: L");
+    display.print(L_avg / 5);
+    display.print(" R");
+    display.print(R_avg / 5);
+
+    display.display();
+  }
+
+  // 同時也印到 Serial（如果有連線的話）
+  Serial.println("=== 測量結果 ===");
+  Serial.print("左輪: ");
+  Serial.print(L_avg);
+  Serial.print(" c/100ms | 右輪: ");
+  Serial.print(R_avg);
+  Serial.println(" c/100ms");
+  Serial.print("建議 c/20ms: 左 ");
+  Serial.print(L_avg / 5);
+  Serial.print(" / 右 ");
+  Serial.print(R_avg / 5);
+  Serial.println("");
+}
+
+void test_speed()
+{
+  // ===== 即時速度測試 =====
+  // 目的：每 100ms 印出左右輪的即時速度
+  // 用途：學生手轉輪子或讓車跑，觀察速度變化
+  // 注意：此函式會持續執行，需按 Reset 結束
+
+  Serial.println("=== 即時速度測試 ===");
+  Serial.println("每 100ms 印出速度，按 Reset 結束");
+  Serial.println("");
+
+  while (true)
+  {
+    // 記錄起始計數
+    long L_start = leftEncoder.getCount();
+    long R_start = rightEncoder.getCount();
+
+    // 等待 100ms
+    delay(100);
+
+    // 計算速度（c/100ms）
+    long L_speed = leftEncoder.getCount() - L_start;
+    long R_speed = rightEncoder.getCount() - R_start;
+
+    // 印出結果
+    Serial.print("左: ");
+    Serial.print(L_speed);
+    Serial.print(" c/100ms | 右: ");
+    Serial.print(R_speed);
+    Serial.println(" c/100ms");
+  }
+}
+
+// ============ 速度閉環控制函式 ============
+// 原理：不再設定固定 PWM，而是設定「目標速度」
+//       程式會根據實際速度動態調整 PWM
+//       這樣不管電池電量如何，都能維持相同的實際速度
+
+// 全域變數：儲存當前左右輪的 PWM 值（供閉環控制累加調整）
+float L_pwm = 0; // 左輪當前 PWM（0~255）
+float R_pwm = 0; // 右輪當前 PWM（0~255）
+
+void speed_control(float L_target, float R_target)
+{
+  // ===== 速度閉環控制（單次呼叫）=====
+  // 輸入：L_target = 左輪目標速度（c/週期）
+  //       R_target = 右輪目標速度（c/週期）
+  // 原理：比較「目標速度」與「實際速度」的差異（誤差）
+  //       根據誤差調整 PWM：
+  //       - 實際速度 < 目標 → 加大 PWM
+  //       - 實際速度 > 目標 → 減小 PWM
+
+  // --- 記錄起始計數 ---
+  long L_start = leftEncoder.getCount();
+  long R_start = rightEncoder.getCount();
+
+  // --- 等待一個控制週期 ---
+  delay(SPEED_CONTROL_PERIOD);
+
+  // --- 計算實際速度（這段時間內的計數變化量）---
+  long L_actual = leftEncoder.getCount() - L_start;  // 左輪實際速度
+  long R_actual = rightEncoder.getCount() - R_start; // 右輪實際速度
+
+  // --- 計算誤差（目標 - 實際）---
+  // 正誤差 = 跑太慢，需要加速
+  // 負誤差 = 跑太快，需要減速
+  float L_error = L_target - L_actual;
+  float R_error = R_target - R_actual;
+
+  // --- 根據誤差調整 PWM（比例控制）---
+  // PWM 調整量 = 誤差 × 比例係數（Kp）
+  // Kp 越大，調整越激進；Kp 越小，調整越平緩
+  L_pwm = L_pwm + L_error * SPEED_KP;
+  R_pwm = R_pwm + R_error * SPEED_KP;
+
+  // --- 限制 PWM 範圍（0~255）---
+  L_pwm = constrain(L_pwm, 0, 255);
+  R_pwm = constrain(R_pwm, 0, 255);
+
+  // --- 輸出到馬達 ---
+  motor((int)L_pwm, (int)R_pwm);
+}
+
+void p_fw_v2(int distance)
+{
+  // ===== 新版前進函式（速度閉環 + 同步修正 + 距離減速）=====
+  // 輸入：distance = 目標距離（編碼器計數）
+  // 特點：
+  //   1. 速度閉環：根據目標速度動態調整 PWM，不受電量影響
+  //   2. 左右同步：即時修正左右輪差異，保持直線
+  //   3. 距離減速：接近目標時自動減速，避免超距
+  //
+  // ===== 校正流程（請依序進行）=====
+  //
+  // 【步驟 1】測極限速度 → 決定 BASE_SPEED
+  //    - 呼叫 test_max_speed()，記錄左右輪 c/20ms
+  //    - 以較慢的輪子為基準，乘 70~80% 作為 BASE_SPEED
+  //    - 例：左輪 85、右輪 88 → BASE_SPEED = 85 * 0.7 ≈ 60
+  //
+  // 【步驟 2】關閉 SYNC_KP → 單獨調 SPEED_KP
+  //    - 先把 SYNC_KP 設為 0（排除左右同步的干擾）
+  //    - 觀察車子運動是否平順（不抖、不頓）
+  //    - 若一頓一頓 → SPEED_KP 太大，往下調（例：5.0 → 0.5 → 0.1）
+  //    - 若反應太慢 → SPEED_KP 太小，往上調
+  //    - 目標：平順加速、穩定巡航
+  //
+  // 【步驟 3】調 MIN_SPEED（從低往高調）
+  //    - 觀察減速階段是否「停了又動」（速度降太低，馬達停轉再啟動）
+  //    - 若有此現象 → MIN_SPEED 太低，往上調（例：10 → 20 → 30）
+  //    - 目標：減速過程平滑連續，不會中途停頓
+  //
+  // 【步驟 4】調 TOLERANCE（補償慣性超距）
+  //    - 讓車跑完後，讀取編碼器計數，看超過目標多少
+  //    - 若超距 50 → TOLERANCE 設 50（提早停止補償慣性）
+  //    - 可同時調 DECEL_START：提早減速 = 減少超距
+  //
+  // 【步驟 5】開啟 SYNC_KP → 調到走直線不晃(尚未完成)
+  //    - 確認步驟 2-4 完成後，將 SYNC_KP 設為小值（例：0.1）
+  //    - 若走歪 → 加大 SYNC_KP
+  //    - 若左右晃動 → SYNC_KP 太大，調小
+  //    - 目標：直線行駛，不偏移也不晃
+  //
+  // ===== 參數說明 =====
+
+  // --- 參數設定（根據上述流程校正後的值）---
+  // 實測極限：左輪 85 c/20ms、右輪 88 c/20ms
+  // 以較慢的左輪為基準，設定 70%（保守）
+  const float BASE_SPEED = 60.0; // 基礎目標速度（c/週期），約 70% 極限
+  const float MIN_SPEED = 20.0;  // 最低目標速度（c/週期），需高於馬達死區
+  const float DECEL_START = 0.6; // 開始減速的進度（0.6 = 走 60% 後開始減速）
+  const int TOLERANCE = 50;      // 到達容差（補償慣性超距）
+  // const float SYNC_KP = 0.1;  // 【步驟 5】左右同步修正係數（目前關閉）
+
+  // --- 清除編碼器 ---
+  leftEncoder.clearCount();
+  rightEncoder.clearCount();
+
+  // --- 重置 PWM 累積值 ---
+  L_pwm = 50; // 給一個初始 PWM，加速啟動
+  R_pwm = 50;
+
+  // --- 主控制迴圈 ---
+  while (true)
+  {
+    // 讀取當前計數（用於計算進度）
+    long L_count = leftEncoder.getCount();
+    long R_count = rightEncoder.getCount();
+    long avgCount = (L_count + R_count) / 2; // 平均計數（代表行進距離）
+
+    // === 終止條件：到達目標 ===
+    if (avgCount >= distance - TOLERANCE)
+    {
+      break;
+    }
+
+    // === 計算目標速度（距離減速）===
+    float progress = (float)avgCount / distance; // 進度 0.0 ~ 1.0
+
+    float targetSpeed;
+    if (progress < DECEL_START)
+    {
+      targetSpeed = BASE_SPEED; // 尚未到減速點 → 全速
+    }
+    else
+    {
+      // 線性減速：用 map 將進度映射到速度
+      // map(值, 原始最小, 原始最大, 目標最小, 目標最大)
+      long decelStartCount = distance * DECEL_START;                                 // 開始減速的計數值
+      targetSpeed = map(avgCount, decelStartCount, distance, BASE_SPEED, MIN_SPEED); // map將目前count映射到逐漸變慢的速度
+    }
+
+    // === 呼叫速度閉環控制（左右輪目標速度相同）===
+    speed_control(targetSpeed, targetSpeed);
+
+    // 【步驟 5】若要開啟左右同步修正，取消以下註解：
+    // long diffError = L_count - R_count;  // 左輪 - 右輪
+    // float correction = diffError * SYNC_KP;
+    // speed_control(targetSpeed - correction, targetSpeed + correction);
+  }
+
+  // --- 停止 ---
+  stop();
+  L_pwm = 0;
+  R_pwm = 0;
+}
+
 // ============ 循跡功能 ============
 // 利用紅外線陣列自動跟隨黑線行進
 
@@ -671,15 +1007,14 @@ void setup()
   ledcSetup(CH_R_FWD, PWM_FREQ, PWM_RES); // 通道 10，75kHz，8-bit
   ledcAttachPin(MOTOR_R_FWD, CH_R_FWD);   // 綁定
 
+  stop(); // 初始化時停止馬達
   // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
-  release_object();
-  p_fw(4000);
-  pickup_object();
-
-  // 以下為測試模式
-  // 測試前進 1000 個編碼器計數值
-  // 測試撿取物體動作
-  // 進入無限迴圈（主程式區）
+  // *馬達測試*
+  // release_object();
+  // delay(1000);
+  // pickup_object();
+  p_fw_v2(4000); // 前進 4000 計數
+  //* OLED：持續顯示紅外線狀態和編碼器值
   while (true)
   {
     oled_show_ir_status(); // 在 OLED 顯示紅外線狀態和編碼器值
@@ -689,9 +1024,5 @@ void setup()
 
 void loop()
 {
-  // TODO: 在此撰寫主程式邏輯
-  // 常見邏輯：
-  // 1. trail()：循跡邏輯（自動沿黑線移動）
-  // 2. pickup_object() 和 release_object()：撿取和釋放物體
-  // 3. 狀態機：根據感測器輸入切換不同控制模式
+  // 主迴圈留空，所有功能在 setup() 中完成
 }
