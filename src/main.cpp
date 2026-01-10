@@ -502,29 +502,89 @@ void p_bw(int distance)
   stop();
 }
 
-void p_left(int distance)
+void p_left(int degree)
 {
   // 目標距離（編碼器計數值）
+  int distance = degree * (860 / 180);
   long targetCount = distance;
 
-  // 清除編碼器計數
+  // 清除編碼器計數器
   leftEncoder.clearCount();
   rightEncoder.clearCount();
 
-  // 執行左轉
+  // 階段 1：快速前進到接近目標
+  const int DECEL_COUNT = 1000; // 開始減速的計數值，方便調整
   b_Left();
 
-  // 監控編碼器計數，直到達到目標轉向距離
   while (true)
   {
-    long leftCount = leftEncoder.getCount();
+    long leftCount = abs(leftEncoder.getCount());
     long rightCount = rightEncoder.getCount();
-
-    if (abs(leftCount) >= targetCount || abs(rightCount) >= targetCount)
+    // 當計數接近目標時停止快速階段
+    if ((leftCount >= targetCount - DECEL_COUNT) || (rightCount >= targetCount - DECEL_COUNT))
     {
       break;
     }
     delay(1);
+  }
+
+  // 階段 2：低速精調
+  motor(-20, 20); // 低速前進
+  delay(50);
+  stop();
+
+  // 階段 3：反復調整至誤差範圍內
+  const int TOLERANCE = 10;        // 容差範圍（±10 計數）
+  const int L_MIN_SPEED = -50;     // 最小驅動速度
+  const int R_MIN_SPEED = 30;      // 最小驅動速度
+  unsigned long maxAttempts = 100; // 最多調整 100 次
+  unsigned long attempts = 0;
+
+  while (attempts < maxAttempts)
+  {
+    long leftCount = abs(leftEncoder.getCount());
+    long rightCount = rightEncoder.getCount();
+    long L_error = leftCount - targetCount; // 計算誤差
+    long R_error = rightCount - targetCount;
+
+    // 誤差在容差範圍內，完成
+    if ((abs(L_error) < TOLERANCE) && (abs(R_error) < TOLERANCE))
+    {
+      break;
+    }
+
+    // 判斷各輪是否超過或未達目標
+    bool L_over = L_error > TOLERANCE;   // 左輪超過
+    bool L_under = L_error < -TOLERANCE; // 左輪未達
+    bool R_over = R_error > TOLERANCE;   // 右輪超過
+    bool R_under = R_error < -TOLERANCE; // 右輪未達
+
+    // 動態計算調整速度
+    int L_adjustSpeed = map(abs(L_error), TOLERANCE, 100, L_MIN_SPEED, -50);
+    L_adjustSpeed = constrain(L_adjustSpeed, L_MIN_SPEED, -50);
+    int R_adjustSpeed = map(abs(R_error), TOLERANCE, 100, R_MIN_SPEED, 50);
+    R_adjustSpeed = constrain(R_adjustSpeed, R_MIN_SPEED, 50);
+
+    // 根據各輪狀態同時調整
+    int L_speed = 0;
+    int R_speed = 0;
+
+    // 左輪修正
+    if (L_over)
+      L_speed = -L_adjustSpeed; // 超過 → 反轉
+    else if (L_under)
+      L_speed = L_adjustSpeed; // 未達 → 正轉
+
+    // 右輪修正
+    if (R_over)
+      R_speed = -R_adjustSpeed; // 超過 → 反轉
+    else if (R_under)
+      R_speed = R_adjustSpeed; // 未達 → 正轉
+
+    motor(L_speed, R_speed);
+    delay(30);
+    stop();
+    delay(20);
   }
 
   stop();
@@ -966,7 +1026,7 @@ void p_bw_v2(int distance)
   const float BASE_SPEED = -60.0; // 基礎目標速度（c/週期），約 70% 極限
   const float MIN_SPEED = -20.0;  // 最低目標速度（c/週期），需高於馬達死區
   const float DECEL_START = 0.6;  // 開始減速的進度（0.6 = 走 60% 後開始減速）
-  const int TOLERANCE = 100;       // 到達容差（補償慣性超距）
+  const int TOLERANCE = 100;      // 到達容差（補償慣性超距）
   // const float SYNC_KP = 0.1;  // 【步驟 5】左右同步修正係數（目前關閉）
 
   // --- 清除編碼器 ---
@@ -1123,10 +1183,11 @@ void setup()
   stop(); // 初始化時停止馬達
   // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
   // *馬達測試*
-  p_fw_v2(4500); // 前進 4200 計數
-  prepare_pickup();
-  pickup_object();
-  p_bw_v2(4500);
+  // p_fw_v2(4500); // 前進 4200 計數
+  // prepare_pickup();
+  // pickup_object();
+  // p_bw_v2(4500);
+  p_left(45); // 左轉 2200 計數
   //* OLED：持續顯示紅外線狀態和編碼器值
   while (true)
   {
