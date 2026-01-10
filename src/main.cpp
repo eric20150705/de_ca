@@ -404,7 +404,7 @@ void p_left(int distance)
   b_Left();
   while (true)
   {
-    long leftCount = leftEncoder.getCount();
+    long leftCount ∑= leftEncoder.getCount();
     long rightCount = rightEncoder.getCount();
     if (abs(leftCount) >= targetCount || abs(rightCount) >= targetCount)
     {
