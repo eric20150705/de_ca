@@ -366,13 +366,13 @@ void m_Right()
 void b_Left()
 {
   // 急左轉：左輪反轉，右輪正轉
-  motor(-25, 25);
+  motor(-35, 35);
 }
 
 void b_Right()
 {
   // 急右轉：左輪正轉，右輪反轉
-  motor(25, -25);
+  motor(35, -35);
 }
 
 void stop()
@@ -1214,7 +1214,7 @@ void setup()
   delay(500);
   release_object();
   delay(500);
-  
+
   //?==================寫主程式的地方==================
 
   //! 以下不需要更動
