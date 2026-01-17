@@ -1181,13 +1181,37 @@ void setup()
   ledcAttachPin(MOTOR_R_FWD, CH_R_FWD);   // 綁定
 
   stop(); // 初始化時停止馬達
-  // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
+          // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
+
+  //?==================寫主程式的地方==================
   // *馬達測試*
   // p_fw_v2(4500); // 前進 4200 計數
   // prepare_pickup();
   // pickup_object();
   // p_bw_v2(4500);
-  p_left(45); // 左轉 2200 計數
+  // p_left(45); // 左轉 2200 計數
+  int look = 0;
+  while (true)
+  {
+    if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
+    {
+      look++;
+      stop();
+      delay(500);
+    }
+    else
+    {
+      trail();
+    }
+    if (look == 3)
+    {
+      stop();
+      break;
+    }
+  }
+  //?==================寫主程式的地方==================
+
+  //! 以下不需要更動
   //* OLED：持續顯示紅外線狀態和編碼器值
   while (true)
   {
