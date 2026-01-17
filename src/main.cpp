@@ -53,7 +53,7 @@ bool maxSpeed_tested = false; // 是否已測試過
 // SG90 伺服馬達角度範圍 0~180°，根據機械結構調整以下角度
 #define ARM_UP 90    // 手臂升起角度（0° = 最低，180° = 最高）
 #define ARM_DOWN 0   // 手臂下降角度
-#define CLAW_OPEN 90 // 爪子開啟角度（夾不住物體）
+#define CLAW_OPEN 85 // 爪子開啟角度（夾不住物體）
 #define CLAW_CLOSE 0 // 爪子關閉角度（夾住物體）
 
 // ===== 編碼器腳位定義 =====
@@ -621,32 +621,29 @@ void claw_close()
 void pickup_object()
 {
   // 撿取物體的完整動作序列
-  claw_open(); // 張爪子
-  delay(200);
-  arm_down(); // 放下手臂
-  delay(200);
+
   claw_close(); // 夾爪子
-  delay(200);
+  delay(500);
   arm_up(); // 抬起手臂
-  delay(200);
+  delay(500);
 }
 
 void release_object()
 {
   // 釋放物體的動作序列
   arm_down(); // 放下手臂
-  delay(200);
+  delay(500);
   claw_open(); // 張爪子
-  delay(200);
+  delay(500);
 }
 
 void prepare_pickup()
 {
   // 打開爪子並且降下手臂，準備撿取物體
   claw_open(); // 張爪子
-  delay(200);
+  delay(500);
   arm_down(); // 放下手臂
-  delay(200);
+  delay(500);
 }
 
 // ============ 測試函式 ============
@@ -1184,31 +1181,7 @@ void setup()
           // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
 
   //?==================寫主程式的地方==================
-  // *馬達測試*
-  // p_fw_v2(4500); // 前進 4200 計數
-  // prepare_pickup();
-  // pickup_object();
-  // p_bw_v2(4500);
-  // p_left(45); // 左轉 2200 計數
-  int look = 0;
-  while (true)
-  {
-    if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
-    {
-      look++;
-      stop();
-      delay(500);
-    }
-    else
-    {
-      trail();
-    }
-    if (look == 3)
-    {
-      stop();
-      break;
-    }
-  }
+
   //?==================寫主程式的地方==================
 
   //! 以下不需要更動
