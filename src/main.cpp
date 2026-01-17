@@ -16,6 +16,7 @@
 #pragma GCC diagnostic ignored "-Wreturn-type"
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #include <HUSKYLENS.h> // HuskyLens AI 視覺識別模組（待整合）
+// TODO: 整合 HuskyLens 顏色識別（需設定 I2C 並抑制編譯警告）
 #pragma GCC diagnostic pop
 #include <esp32-hal-ledc.h> // ESP32 LEDC PWM 驅動庫，用於馬達 PWM 控制
 
@@ -70,7 +71,8 @@ int p_left_dis = 0;
 #define CLAW_CLOSE 0 // 爪子關閉角度（夾住物體）
 
 // ===== 編碼器腳位定義 =====
-// 編碼器輸出 A 相和 B 相訊號，ESP32 透過相位差計算旋轉方向
+// 編碼器：計數輪子轉動的感測器
+// 輸出 A 相和 B 相訊號，ESP32 透過相位差計算旋轉方向
 #define LEFT_ENCODER_A 18  // 左馬達編碼器 A 相（正交解碼）
 #define LEFT_ENCODER_B 19  // 左馬達編碼器 B 相
 #define RIGHT_ENCODER_A 23 // 右馬達編碼器 A 相
@@ -78,6 +80,7 @@ int p_left_dis = 0;
 
 // ===== 腳位定義 =====
 // 紅外線感測器：5 路陣列，用於循跡和邊界檢測
+// 原理：紅外線照射後反射，黑線反射弱、白地反射強
 #define IR_LL_PIN 39 // 最左側紅外線（GPIO39）
 #define IR_L_PIN 32  // 左側紅外線（GPIO32）
 #define IR_M_PIN 33  // 中間紅外線（GPIO33）
@@ -85,13 +88,15 @@ int p_left_dis = 0;
 #define IR_RR_PIN 35 // 最右側紅外線（GPIO35）
 
 // 馬達控制腳位：每個馬達有正轉和反轉兩個腳位
+//! 危險：正反轉不可同時輸出，會短路損壞駅動板
 #define MOTOR_L_FWD 27 // 左馬達正轉（GPIO27）
 #define MOTOR_L_BWD 13 // 左馬達反轉（GPIO13）
 #define MOTOR_R_FWD 2  // 右馬達正轉（GPIO2）
 #define MOTOR_R_BWD 4  // 右馬達反轉（GPIO4）
 
 // PWM 通道設定 (使用 Timer 2 的通道 8-11，Timer 0 預留給伺服馬達)
-// ESP32 LEDC 有 16 個通道（0~15），分別對應 4 個定時器
+// ESP32 LEDC（馬達速度控制晶片）有 16 個通道（0~15），分別對應 4 個定時器
+//! 警告：Timer 0 給伺服、Timer 2 給馬達，絕不可混用！
 #define CH_L_FWD 8  // 左馬達正轉通道（Timer 2, Channel 8）
 #define CH_L_BWD 9  // 左馬達反轉通道（Timer 2, Channel 9）
 #define CH_R_FWD 10 // 右馬達正轉通道（Timer 2, Channel 10）
@@ -108,12 +113,11 @@ int p_left_dis = 0;
 // 例如：極限 45 c/100ms → 用 20ms（約 9c）；極限 20 c/100ms → 用 50ms（約 10c）
 #define SPEED_CONTROL_PERIOD 20 // 速度控制週期，單位 ms
 
-// SPEED_KP：速度閉環比例係數
+//? 調參指引：SPEED_KP （速度閉環比例係數）
 // - 作用：PWM 調整量 = (目標速度 - 實際速度) * Kp
-// - 調整方法：
-//   - 太大（例：5.0）→ 車子一頓一頓、抖動 → 往下調
-//   - 太小（例：0.01）→ 反應慢、達不到目標速度 → 往上調
-//   - 建議從 0.1 開始，逐步微調至平順
+// - 太大（例：5.0）→ 車子一頓一頓、抖動 → 往下調
+// - 太小（例：0.01）→ 反應慢、達不到目標速度 → 往上調
+// - 建議從 0.1 開始，逐步微調至平順
 #define SPEED_KP 0.1 // 速度控制比例係數
 
 // ===== 函式前向宣告 =====
@@ -152,11 +156,8 @@ void trail_b_Right(); // 急右轉 (左輪35，右輪-35 - 右輪反轉)
 void stop();          // 停止（兩輪速度都為 0）
 
 // 距離控制函式：根據編碼器反饋控制精確距離
-void p_fw(int distance);    // 設定距離前進（易超距，建議用 PID 改進）
-void p_bw(int distance);    // 設定距離後退
 void p_left(int distance);  // 設定距離左轉
 void p_right(int distance); // 設定距離右轉
-void p_test(int distance);  // 距離測試（帶動態調整功能）
 
 // --- 伺服馬達控制函式 ---
 // 功能：控制手臂和爪子的角度，單位為度數（0~180°）
@@ -309,6 +310,10 @@ void oled_show_ir_status()
 
 void motor(int L, int R)
 {
+  //* 核心馬達控制函式
+  // 輸入：L = 左輪速度 -255~255，R = 右輪速度 -255~255
+  // 正值 = 前進、負值 = 後退、0 = 停止
+
   // 限制左輪速度在 -255~255 範圍內
   if (L > 255)
     L = 255;
@@ -322,14 +327,15 @@ void motor(int L, int R)
     R = -255;
 
   // ===== 左輪控制 =====
+  //! 重要：正轉和反轉不能同時輸出，會短路損壞駅動板
   if (L > 0) // 正轉（前進）
   {
     ledcWrite(CH_L_FWD, L);
-    ledcWrite(CH_L_BWD, 0);
+    ledcWrite(CH_L_BWD, 0); // 反轉通道必須為 0
   }
   else // 反轉（後退）
   {
-    ledcWrite(CH_L_FWD, 0);
+    ledcWrite(CH_L_FWD, 0); // 正轉通道必須為 0
     ledcWrite(CH_L_BWD, -L);
   }
 
@@ -351,14 +357,20 @@ void motor(int L, int R)
 
 void forward()
 {
-  // 直線前進：左輪 55，右輪 58（補償左偏）
+  //* 直線前進（左輪 55、右輪 55 - 補償左偏）
+  //? 調參指引：循跡速度調整
+  //  太慢 → 增加數值：55→65→75
+  //  太快轉彎跟不上 → 減少數值：55→45→35
+  //  偏左 → 增加左輪：motor(60, 55)
+  //  偏右 → 增加右輪：motor(55, 60)
   motor(55, 55);
 }
 
 void backward()
 {
-  // 直線後退：左右輪速度相同
-  motor(-25, -25);
+  //* 簡易後退函式（固定 PWM，無速度閉環）
+  //? 調參指引：太慢增加數值 25→35、太快減少數值 25→15
+  motor(-25, -25); // 左右輪相同速度後退
 }
 
 void s_Left()
@@ -420,121 +432,6 @@ void stop()
 // 利用編碼器計數實現精確距離控制
 // 校準：1 編碼器計數 ≈ ? mm，需根據輪徑現場測量並調整
 
-void p_fw(int distance)
-{
-  // 目標距離（編碼器計數值）
-  long targetCount = distance;
-
-  // 清除編碼器計數器
-  leftEncoder.clearCount();
-  rightEncoder.clearCount();
-
-  // 階段 1：快速前進到接近目標
-  const int DECEL_COUNT = 1000; // 開始減速的計數值，方便調整
-  forward();
-  while (true)
-  {
-    long leftCount = leftEncoder.getCount();
-    long rightCount = rightEncoder.getCount();
-    // 當計數接近目標時停止快速階段
-    if ((leftCount >= targetCount - DECEL_COUNT) || (rightCount >= targetCount - DECEL_COUNT))
-    {
-      break;
-    }
-    delay(1);
-  }
-
-  // 階段 2：低速精調
-  motor(20, 20); // 低速前進
-  delay(50);
-  stop();
-
-  // 階段 3：反復調整至誤差範圍內
-  const int TOLERANCE = 10;        // 容差範圍（±10 計數）
-  const int L_MIN_SPEED = 30;      // 最小驅動速度
-  const int R_MIN_SPEED = 30;      // 最小驅動速度
-  unsigned long maxAttempts = 100; // 最多調整 100 次
-  unsigned long attempts = 0;
-
-  while (attempts < maxAttempts)
-  {
-    long leftCount = leftEncoder.getCount();
-    long rightCount = rightEncoder.getCount();
-    long L_error = leftCount - targetCount; // 計算誤差
-    long R_error = rightCount - targetCount;
-
-    // 誤差在容差範圍內，完成
-    if ((abs(L_error) < TOLERANCE) && (abs(R_error) < TOLERANCE))
-    {
-      break;
-    }
-
-    // 判斷各輪是否超過或未達目標
-    bool L_over = L_error > TOLERANCE;   // 左輪超過
-    bool L_under = L_error < -TOLERANCE; // 左輪未達
-    bool R_over = R_error > TOLERANCE;   // 右輪超過
-    bool R_under = R_error < -TOLERANCE; // 右輪未達
-
-    // 動態計算調整速度
-    int L_adjustSpeed = map(abs(L_error), TOLERANCE, 100, L_MIN_SPEED, 50);
-    L_adjustSpeed = constrain(L_adjustSpeed, L_MIN_SPEED, 50);
-    int R_adjustSpeed = map(abs(R_error), TOLERANCE, 100, R_MIN_SPEED, 50);
-    R_adjustSpeed = constrain(R_adjustSpeed, R_MIN_SPEED, 50);
-
-    // 根據各輪狀態同時調整
-    int L_speed = 0;
-    int R_speed = 0;
-
-    // 左輪修正
-    if (L_over)
-      L_speed = -L_adjustSpeed; // 超過 → 反轉
-    else if (L_under)
-      L_speed = L_adjustSpeed; // 未達 → 正轉
-
-    // 右輪修正
-    if (R_over)
-      R_speed = -R_adjustSpeed; // 超過 → 反轉
-    else if (R_under)
-      R_speed = R_adjustSpeed; // 未達 → 正轉
-
-    motor(L_speed, R_speed);
-    delay(30);
-    stop();
-    delay(50);
-    attempts++;
-  }
-
-  stop();
-}
-
-void p_bw(int distance)
-{
-  // 目標距離（編碼器計數值）
-  long targetCount = distance;
-
-  // 清除編碼器計數
-  leftEncoder.clearCount();
-  rightEncoder.clearCount();
-
-  // 執行後退
-  backward();
-
-  // 監控編碼器計數，直到達到目標距離
-  while (true)
-  {
-    long leftCount = leftEncoder.getCount();
-    long rightCount = rightEncoder.getCount();
-
-    if (leftCount <= -targetCount || rightCount <= -targetCount)
-    {
-      break;
-    }
-    delay(1);
-  }
-
-  stop();
-}
-
 void p_left(int degree)
 {
   // 目標距離（編碼器計數值）
@@ -545,7 +442,7 @@ void p_left(int degree)
   leftEncoder.clearCount();
   rightEncoder.clearCount();
 
-  // 階段 1：快速前進到接近目標
+  //* 階段 1：快速前進到接近目標
   const int DECEL_COUNT = 1000; // 開始減速的計數值，方便調整
   b_Left();
 
@@ -561,12 +458,12 @@ void p_left(int degree)
     delay(1);
   }
 
-  // 階段 2：低速精調
+  //* 階段 2：低速精調
   motor(-25, 25); // 低速前進
   delay(60);
   stop();
 
-  // 階段 3：反復調整至誤差範圍內
+  //* 階段 3：反復調整至誤差範圍內
   const int TOLERANCE = 10;        // 容差範圍（±10 計數）
   const int L_MIN_SPEED = -50;     // 最小驅動速度
   const int R_MIN_SPEED = 30;      // 最小驅動速度
@@ -818,6 +715,10 @@ void test_IR()
 
 void test_max_speed()
 {
+  //* 極限速度測試（為什麼要測？）
+  //  1. 測量硬體極限：避免設定超過硬體能力的目標速度
+  //  2. 計算安全速度：通常用 70-80% 極限（保留餘裕避免失控）
+  //  3. 電池校準：滿電和低電時極限速度不同，需定期測量
   // ===== 極限速度測試 =====
   // 目的：測量 PWM=255 時左右輪的最大速度（c/100ms）
   // 用途：作為設定目標速度的參考上限
@@ -966,6 +867,7 @@ float R_pwm = 0; // 右輪當前 PWM（0~255）
 
 void speed_control(float L_target, float R_target)
 {
+  //* 速度閉環控制：根據目標速度動態調整 PWM
   // ===== 速度閉環控制（單次呼叫）=====
   // 輸入：L_target = 左輪目標速度（c/週期）
   //       R_target = 右輪目標速度（c/週期）
@@ -1007,8 +909,9 @@ void speed_control(float L_target, float R_target)
 
 void p_fw_v2(int distance)
 {
+  //* 新版前進函式：速度閉環 + 距離減速控制
   // ===== 新版前進函式（速度閉環 + 同步修正 + 距離減速）=====
-  // 輸入：distance = 目標距離（編碼器計數）
+  // 輸入：distance = 目標距離（編碼器計數值，約 0.5mm/count）
   // 特點：
   //   1. 速度閉環：根據目標速度動態調整 PWM，不受電量影響
   //   2. 左右同步：即時修正左右輪差異，保持直線
@@ -1049,8 +952,11 @@ void p_fw_v2(int distance)
   // --- 參數設定（根據上述流程校正後的值）---
   // 實測極限：左輪 85 c/20ms、右輪 88 c/20ms
   // 以較慢的左輪為基準，設定 70%（保守）
+  //? 調參：根據 test_max_speed() 結果調整，取較慢輪子的 70%
   const float BASE_SPEED = 60.0; // 基礎目標速度（c/週期），約 70% 極限
-  const float MIN_SPEED = 20.0;  // 最低目標速度（c/週期），需高於馬達死區
+  //? 調參：逐步增加直到輪子剛好能轉動（避免馬達死區）
+  const float MIN_SPEED = 20.0; // 最低目標速度（c/週期），需高於馬達死區
+  //? 調參：提早減速可減少超距但增加時間
   const float DECEL_START = 0.6; // 開始減速的進度（0.6 = 走 60% 後開始減速）
   const int TOLERANCE = 50;      // 到達容差（補償慣性超距）
   // const float SYNC_KP = 0.1;  // 【步驟 5】左右同步修正係數（目前關閉）
