@@ -4,6 +4,8 @@
 // 監控：pio device monitor (9600 baud)
 
 #include <Arduino.h>          // Arduino 核心庫（digitalWrite, analogRead 等）
+#include <WiFi.h>             // WiFi 函式庫，用於 OTA 無線更新
+#include <ArduinoOTA.h>       // OTA 無線燒入函式庫
 #include <ESP32Encoder.h>     // ESP32 編碼器庫，用於讀取馬達反饋
 #include <QuickPID.h>         // PID 控制庫（待實作）
 #include <ESP32Servo.h>       // ESP32 伺服馬達庫，用於控制 SG90
@@ -16,6 +18,16 @@
 #include <HUSKYLENS.h> // HuskyLens AI 視覺識別模組（待整合）
 #pragma GCC diagnostic pop
 #include <esp32-hal-ledc.h> // ESP32 LEDC PWM 驅動庫，用於馬達 PWM 控制
+
+// ===== OTA 無線燒入設定 =====
+// WiFi 憑證（用於 OTA 更新）
+#define WIFI_SSID "Singular_AI"
+#define WIFI_PASSWORD "Singular#1234"
+#define OTA_WINDOW_MS 7000   // OTA 監聽窗口時長（毫秒）
+#define WIFI_TIMEOUT_MS 1000 // WiFi 連線超時（毫秒）
+
+// OTA 狀態旗標（偵測到 OTA 開始時設為 true，延長窗口直到完成）
+volatile bool otaInProgress = false;
 
 // ===== 編碼器物件 =====
 // 讀取左右馬達的旋轉計數，用於距離反饋控制
@@ -175,6 +187,9 @@ void p_bw_v2(int distance); // 新版前進：速度閉環 + 左右同步修正
 
 // --- 循跡功能 ---
 void trail(); // 循跡邏輯（根據 IR 陣列自動調整方向以跟隨黑線）
+
+// --- OTA 無線燒入 ---
+void ota_setup(); // OTA 開機窗口監聽（reset 後 5 秒內可接收 OTA）
 
 // ===== 自訂函式實作區 =====
 // 本區塊包含所有硬體控制和功能邏輯的實現
@@ -1195,6 +1210,83 @@ void p_bw_v2(int distance)
   R_pwm = 0;
 }
 
+// ============ OTA 無線燒入函式 ============
+// 開機後提供短暫窗口監聽 OTA 請求，時間過後自動進入主程式
+// 若偵測到 OTA 傳輸開始，會自動延長窗口直到傳輸完成
+
+void ota_setup()
+{
+  Serial.println("\n===== OTA 無線燒入模式 =====");
+  Serial.print("正在連接 WiFi: ");
+  Serial.println(WIFI_SSID);
+
+  // --- 連接 WiFi（設定超時）---
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  unsigned long wifiStart = millis();
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    if (millis() - wifiStart > WIFI_TIMEOUT_MS)
+    {
+      Serial.println("WiFi 連線超時，跳過 OTA 窗口");
+      WiFi.disconnect(true);
+      WiFi.mode(WIFI_OFF);
+      return; // 超時直接返回，進入主程式
+    }
+    delay(100);
+    Serial.print(".");
+  }
+
+  // --- WiFi 連線成功 ---
+  Serial.println();
+  Serial.print("WiFi 已連線！IP 位址: ");
+  Serial.println(WiFi.localIP());
+
+  // --- 設定 OTA 回呼函式 ---
+  ArduinoOTA.onStart([]()
+                     {
+    otaInProgress = true;
+    String type = (ArduinoOTA.getCommand() == U_FLASH) ? "程式" : "檔案系統";
+    Serial.println("OTA 開始更新: " + type); });
+
+  ArduinoOTA.onEnd([]()
+                   { Serial.println("\nOTA 更新完成！重新啟動..."); });
+
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total)
+                        { Serial.printf("OTA 進度: %u%%\r", (progress / (total / 100))); });
+
+  ArduinoOTA.onError([](ota_error_t error)
+                     {
+    Serial.printf("OTA 錯誤 [%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("驗證失敗");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("開始失敗");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("連線失敗");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("接收失敗");
+    else if (error == OTA_END_ERROR) Serial.println("結束失敗"); });
+
+  // --- 啟動 OTA 服務 ---
+  ArduinoOTA.begin();
+  Serial.print("OTA 監聽中... (");
+  Serial.print(OTA_WINDOW_MS / 1000);
+  Serial.println(" 秒窗口)");
+
+  // --- OTA 窗口迴圈 ---
+  // 持續監聽直到窗口時間結束，若偵測到 OTA 開始則延長直到完成
+  unsigned long otaStart = millis();
+  while ((millis() - otaStart < OTA_WINDOW_MS) || otaInProgress)
+  {
+    ArduinoOTA.handle();
+    delay(10);
+  }
+
+  // --- 關閉 WiFi，釋放資源 ---
+  Serial.println("OTA 窗口結束，關閉 WiFi...");
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  Serial.println("進入主程式執行\n");
+}
+
 // ============ 循跡功能 ============
 // 利用紅外線陣列自動跟隨黑線行進
 
@@ -1241,6 +1333,10 @@ void setup()
 {
   // 初始化序列埠通訊，9600 baud
   Serial.begin(9600);
+
+  // --- OTA 無線燒入窗口（reset 後 5 秒內可接收 OTA）---
+  // 若需要 OTA 更新，請在 reset 後立即觸發上傳
+  ota_setup();
 
   // --- OLED 初始化 ---
   oled_init();
