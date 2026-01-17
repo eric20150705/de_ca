@@ -1213,8 +1213,8 @@ void setup()
         break;
       }
       p_fw_v2(150);
-      stop();
-      delay(500);
+      // stop();
+      // delay(500);
     }
     else
     {
@@ -1230,6 +1230,7 @@ void setup()
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
       stop();
+      delay(500);
       break;
     }
   }
@@ -1245,8 +1246,8 @@ void setup()
         break;
       }
       p_fw_v2(150);
-      stop();
-      delay(500);
+      // stop();
+      // delay(500);
     }
     else
     {
