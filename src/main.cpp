@@ -1488,7 +1488,111 @@ void setup()
       break;
     }
   }
-  //*=============夾取左邊的東西==================
+  //*=============夾取左邊的東西結束==================
+  prepare_pickup();
+  //*=============夾取右邊的東西==================
+  look = 0;
+  while (true)
+  {
+    if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
+    {
+      look++;
+      p_fw_v2(350);
+      if (look == 2)
+      {
+        stop();
+        break;
+      }
+    }
+    else
+    {
+      trail();
+    }
+  }
+  // 十字路口右轉
+  p_right(70);
+  // 十字路口右轉結束
+  while (true)
+  {
+    trail_b_Right();
+    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
+    {
+      stop();
+      delay(500);
+      break;
+    }
+  }
+  while (true)
+  {
+    if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
+    {
+      stop();
+      break;
+    }
+    else
+    {
+      trail();
+    }
+  }
+  pickup_object();
+  delay(500);
+  p_right(180);
+  while (true) // 調整轉彎角度的while迴圈
+  {
+    trail_b_Right();
+    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
+    {
+      stop();
+      delay(500);
+      break;
+    }
+  }
+  while (true)
+  {
+    if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
+    {
+      stop();
+      p_fw_v2(450);
+      break;
+    }
+    else
+    {
+      trail();
+    }
+  }
+  p_left(70);
+  while (true)
+  {
+    trail_b_Left();
+    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
+    {
+      stop();
+      delay(500);
+      break;
+    }
+  }
+  look = 0;
+  while (true)
+  {
+    if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
+    {
+      look++;
+      if (look == 2)
+      {
+        stop();
+        break;
+      }
+      p_fw_v2(250);
+    }
+    else
+    {
+      trail();
+    }
+  }
+  p_bw_v2(200);
+  release_object();
+  delay(50);
+  //*=============夾取右邊的東西結束==================
 
   //?==================寫主程式的地方==================
 
