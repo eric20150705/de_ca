@@ -43,6 +43,7 @@ bool oled_ready = false;                                              // OLED �
 long maxSpeed_L = 0;          // 左輪極限速度（c/100ms）
 long maxSpeed_R = 0;          // 右輪極限速度（c/100ms）
 bool maxSpeed_tested = false; // 是否已測試過
+int p_left_dis = 0;
 
 // ===== 伺服馬達腳位定義 =====
 // 使用 ESP32 的 GPIO 腳位連接 SG90 伺服馬達（PWM 控制）
@@ -147,10 +148,11 @@ void p_test(int distance);  // 距離測試（帶動態調整功能）
 
 // --- 伺服馬達控制函式 ---
 // 功能：控制手臂和爪子的角度，單位為度數（0~180°）
-void arm_up();     // 手臂升起（寫入 ARM_UP 角度）
-void arm_down();   // 手臂下降（寫入 ARM_DOWN 角度）
-void claw_open();  // 爪子開啟（寫入 CLAW_OPEN 角度）
-void claw_close(); // 爪子關閉（寫入 CLAW_CLOSE 角度）
+void arm_up();        // 手臂升起（寫入 ARM_UP 角度）
+void arm_down();      // 手臂下降（寫入 ARM_DOWN 角度）
+void arm_down_slow(); // 手臂慢慢下降
+void claw_open();     // 爪子開啟（寫入 CLAW_OPEN 角度）
+void claw_close();    // 爪子關閉（寫入 CLAW_CLOSE 角度）
 
 // 複合伺服動作
 void pickup_object();  // 撿取物體動作序列（張爪 → 下降 → 夾爪 → 上升）
@@ -278,7 +280,10 @@ void oled_show_ir_status()
     display.print(" R");
     display.print(maxSpeed_R / 5);
   }
-
+  // 顯示目標值
+  display.println();
+  display.print("Target L/R:");
+  display.print(p_left_dis);
   // 將緩衝區內容寫入 OLED 顯示器
   display.display();
 }
@@ -518,9 +523,9 @@ void p_bw(int distance)
 void p_left(int degree)
 {
   // 目標距離（編碼器計數值）
-  int distance = degree * (860 / 180);
+  int distance = degree * (930 / 180);
   long targetCount = distance;
-
+  p_left_dis = distance;
   // 清除編碼器計數器
   leftEncoder.clearCount();
   rightEncoder.clearCount();
@@ -542,15 +547,15 @@ void p_left(int degree)
   }
 
   // 階段 2：低速精調
-  motor(-20, 20); // 低速前進
-  delay(50);
+  motor(-25, 25); // 低速前進
+  delay(60);
   stop();
 
   // 階段 3：反復調整至誤差範圍內
   const int TOLERANCE = 10;        // 容差範圍（±10 計數）
   const int L_MIN_SPEED = -50;     // 最小驅動速度
   const int R_MIN_SPEED = 30;      // 最小驅動速度
-  unsigned long maxAttempts = 100; // 最多調整 100 次
+  unsigned long maxAttempts = 200; // 最多調整 100 次
   unsigned long attempts = 0;
 
   while (attempts < maxAttempts)
@@ -618,6 +623,16 @@ void arm_down()
   // 寫入 ARM_DOWN 角度，使手臂下降
   arm.write(ARM_DOWN);
 }
+void arm_down_slow()
+{
+  // 寫入 ARM_DOWN 角度，使手臂下降
+  // 慢慢往下放
+  for (int angle = ARM_UP; angle >= ARM_DOWN; angle -= 2)
+  {
+    arm.write(angle);
+    delay(30);
+  }
+}
 
 void claw_open()
 {
@@ -644,7 +659,7 @@ void pickup_object()
 void release_object()
 {
   // 釋放物體的動作序列
-  arm_down(); // 放下手臂
+  arm_down_slow(); // 放下手臂
   delay(300);
   claw_open(); // 張爪子
   delay(300);
@@ -1103,11 +1118,11 @@ void trail()
     // 檢查左右偏差，微調方向
     if (IR_L_read() == 1 && IR_R_read() == 0) // 向左偏
     {
-      m_Left();
+      s_Left();
     }
     else if (IR_L_read() == 0 && IR_R_read() == 1) // 向右偏
     {
-      m_Right();
+      s_Right();
     }
     else // 左右平衡，直線前進
     {
@@ -1119,11 +1134,13 @@ void trail()
     // 激進轉向
     if (IR_L_read() == 1 && IR_R_read() == 0) // 黑線在左邊
     {
-      trail_b_Left();
+      // trail_b_Left();
+      m_Left();
     }
     else if (IR_L_read() == 0 && IR_R_read() == 1) // 黑線在右邊
     {
-      trail_b_Right();
+      // trail_b_Right();
+      m_Right();
     }
   }
 }
@@ -1194,12 +1211,7 @@ void setup()
           // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
 
   //?==================寫主程式的地方==================
-  // *馬達測試*
-  // p_fw_v2(4500); // 前進 4200 計數
-  // prepare_pickup();
-  // pickup_object();
-  // p_bw_v2(4500);
-  // p_left(45); // 左轉 2200 計數
+  // *===============直走，中間取貨開始=================
   prepare_pickup();
   int look = 0;
   while (true)
@@ -1212,9 +1224,7 @@ void setup()
         stop();
         break;
       }
-      p_fw_v2(150);
-      // stop();
-      // delay(500);
+      p_fw_v2(250);
     }
     else
     {
@@ -1245,17 +1255,21 @@ void setup()
         stop();
         break;
       }
-      p_fw_v2(150);
-      // stop();
-      // delay(500);
+      p_fw_v2(250);
     }
     else
     {
       trail();
     }
   }
+  p_fw_v2(150);
   release_object();
+  stop();
   delay(500);
+  p_bw_v2(200);
+  p_left(180);
+  //*==================中間取貨結束=====================
+
   //?==================寫主程式的地方==================
 
   //! 以下不需要更動
