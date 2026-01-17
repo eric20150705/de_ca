@@ -1267,9 +1267,89 @@ void setup()
   stop();
   delay(500);
   p_bw_v2(200);
-  p_left(180);
+  p_left(150);
+  stop();
+  delay(500);
+  while (true)
+  {
+    trail_b_Left();
+    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
+    {
+      stop();
+      delay(500);
+      break;
+    }
+  }
   //*==================中間取貨結束=====================
-
+  look = 0;
+  while (true)
+  {
+    if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
+    {
+      look++;
+      p_fw_v2(250);
+      if (look == 2)
+      {
+        stop();
+        break;
+      }
+    }
+    else
+    {
+      trail();
+    }
+  }
+  // 十字路口左轉
+  p_left(70);
+  // 十字路口左轉結束
+  while (true)
+  {
+    trail_b_Left();
+    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
+    {
+      stop();
+      delay(500);
+      break;
+    }
+  }
+  while (true)
+  {
+    if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
+    {
+      stop();
+      break;
+    }
+    else
+    {
+      trail();
+    }
+  }
+  pickup_object();
+  delay(500);
+  p_left(180);
+  while (true)
+  {
+    trail_b_Left();
+    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
+    {
+      stop();
+      delay(500);
+      break;
+    }
+  }
+  while (true)
+  {
+    if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
+    {
+      stop();
+      break;
+      p_fw_v2(250);
+    }
+    else
+    {
+      trail();
+    }
+  }
   //?==================寫主程式的地方==================
 
   //! 以下不需要更動
