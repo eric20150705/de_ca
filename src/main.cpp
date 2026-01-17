@@ -53,7 +53,7 @@ bool maxSpeed_tested = false; // 是否已測試過
 // SG90 伺服馬達角度範圍 0~180°，根據機械結構調整以下角度
 #define ARM_UP 90    // 手臂升起角度（0° = 最低，180° = 最高）
 #define ARM_DOWN 0   // 手臂下降角度
-#define CLAW_OPEN 90 // 爪子開啟角度（夾不住物體）
+#define CLAW_OPEN 80 // 爪子開啟角度（夾不住物體）
 #define CLAW_CLOSE 0 // 爪子關閉角度（夾住物體）
 
 // ===== 編碼器腳位定義 =====
@@ -126,15 +126,17 @@ void oled_show_ir_status(); // 在 OLED 顯示紅外線狀態和編碼器計數
 void motor(int L, int R); // 馬達控制 (L:左輪速度 -255~255, R:右輪速度 -255~255)
 
 // 高層動作函式：基於 motor() 實現的複合動作
-void forward();  // 直線前進 (左輪55，右輪58 - 補償左偏)
-void backward(); // 直線後退 (左輪-55，右輪-55)
-void s_Left();   // 原地左轉 (左輪-75，右輪55)
-void s_Right();  // 原地右轉 (左輪55，右輪-75)
-void m_Left();   // 左轉 (左輪停止，右輪55)
-void m_Right();  // 右轉 (左輪55，右輪停止)
-void b_Left();   // 急左轉 (左輪-55，右輪55 - 左輪反轉)
-void b_Right();  // 急右轉 (左輪55，右輪-55 - 右輪反轉)
-void stop();     // 停止（兩輪速度都為 0）
+void forward();       // 直線前進 (左輪55，右輪58 - 補償左偏)
+void backward();      // 直線後退 (左輪-55，右輪-55)
+void s_Left();        // 原地左轉 (左輪-75，右輪55)
+void s_Right();       // 原地右轉 (左輪55，右輪-75)
+void m_Left();        // 左轉 (左輪停止，右輪55)
+void m_Right();       // 右轉 (左輪55，右輪停止)
+void b_Left();        // 急左轉 (左輪-55，右輪55 - 左輪反轉)
+void b_Right();       // 急右轉 (左輪55，右輪-55 - 右輪反轉)
+void trail_b_Left();  // 急左轉 (左輪-35，右輪35 - 左輪反轉)
+void trail_b_Right(); // 急右轉 (左輪35，右輪-35 - 右輪反轉)
+void stop();          // 停止（兩輪速度都為 0）
 
 // 距離控制函式：根據編碼器反饋控制精確距離
 void p_fw(int distance);    // 設定距離前進（易超距，建議用 PID 改進）
@@ -366,12 +368,23 @@ void m_Right()
 void b_Left()
 {
   // 急左轉：左輪反轉，右輪正轉
-  motor(-35, 35);
+  motor(-55, 55);
 }
 
 void b_Right()
 {
   // 急右轉：左輪正轉，右輪反轉
+  motor(55, -55);
+}
+
+void trail_b_Left()
+{
+  // 急左轉 (左輪-35，右輪35 - 左輪反轉)
+  motor(-35, 35);
+}
+void trail_b_Right()
+{
+  // 急右轉 (左輪35，右輪-35 - 右輪反轉)
   motor(35, -35);
 }
 
@@ -1106,11 +1119,11 @@ void trail()
     // 激進轉向
     if (IR_L_read() == 1 && IR_R_read() == 0) // 黑線在左邊
     {
-      b_Left();
+      trail_b_Left();
     }
     else if (IR_L_read() == 0 && IR_R_read() == 1) // 黑線在右邊
     {
-      b_Right();
+      trail_b_Right();
     }
   }
 }
@@ -1187,6 +1200,7 @@ void setup()
   // pickup_object();
   // p_bw_v2(4500);
   // p_left(45); // 左轉 2200 計數
+  prepare_pickup();
   int look = 0;
   while (true)
   {
@@ -1207,14 +1221,40 @@ void setup()
       trail();
     }
   }
-
-  prepare_pickup();
-  delay(500);
   pickup_object();
   delay(500);
+  p_left(180);
+  while (true)
+  {
+    trail_b_Left();
+    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
+    {
+      stop();
+      break;
+    }
+  }
+  look = 0;
+  while (true)
+  {
+    if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
+    {
+      look++;
+      if (look == 3)
+      {
+        stop();
+        break;
+      }
+      p_fw_v2(150);
+      stop();
+      delay(500);
+    }
+    else
+    {
+      trail();
+    }
+  }
   release_object();
   delay(500);
-
   //?==================寫主程式的地方==================
 
   //! 以下不需要更動
