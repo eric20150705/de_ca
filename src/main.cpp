@@ -53,7 +53,7 @@ bool maxSpeed_tested = false; // 是否已測試過
 // SG90 伺服馬達角度範圍 0~180°，根據機械結構調整以下角度
 #define ARM_UP 90    // 手臂升起角度（0° = 最低，180° = 最高）
 #define ARM_DOWN 0   // 手臂下降角度
-#define CLAW_OPEN 85 // 爪子開啟角度（夾不住物體）
+#define CLAW_OPEN 90 // 爪子開啟角度（夾不住物體）
 #define CLAW_CLOSE 0 // 爪子關閉角度（夾住物體）
 
 // ===== 編碼器腳位定義 =====
@@ -623,27 +623,27 @@ void pickup_object()
   // 撿取物體的完整動作序列
 
   claw_close(); // 夾爪子
-  delay(500);
+  delay(300);
   arm_up(); // 抬起手臂
-  delay(500);
+  delay(300);
 }
 
 void release_object()
 {
   // 釋放物體的動作序列
   arm_down(); // 放下手臂
-  delay(500);
+  delay(300);
   claw_open(); // 張爪子
-  delay(500);
+  delay(300);
 }
 
 void prepare_pickup()
 {
   // 打開爪子並且降下手臂，準備撿取物體
   claw_open(); // 張爪子
-  delay(500);
+  delay(300);
   arm_down(); // 放下手臂
-  delay(500);
+  delay(300);
 }
 
 // ============ 測試函式 ============
@@ -1206,18 +1206,27 @@ void setup()
     {
       trail();
     }
-    //?==================寫主程式的地方==================
-
-    //! 以下不需要更動
-    //* OLED：持續顯示紅外線狀態和編碼器值
-    while (true)
-    {
-      oled_show_ir_status(); // 在 OLED 顯示紅外線狀態和編碼器值
-      delay(500);            // 每 500ms 更新一次
-    };
   }
 
-  void loop()
+  prepare_pickup();
+  delay(500);
+  pickup_object();
+  delay(500);
+  release_object();
+  delay(500);
+  
+  //?==================寫主程式的地方==================
+
+  //! 以下不需要更動
+  //* OLED：持續顯示紅外線狀態和編碼器值
+  while (true)
   {
-    // 主迴圈留空，所有功能在 setup() 中完成
-  }
+    oled_show_ir_status(); // 在 OLED 顯示紅外線狀態和編碼器值
+    delay(500);            // 每 500ms 更新一次
+  };
+}
+
+void loop()
+{
+  // 主迴圈留空，所有功能在 setup() 中完成
+}
