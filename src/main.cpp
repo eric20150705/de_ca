@@ -336,43 +336,43 @@ void forward()
 void backward()
 {
   // 直線後退：左右輪速度相同
-  motor(-55, -55);
+  motor(-25, -25);
 }
 
 void s_Left()
 {
   // 原地左轉：左輪-75，右輪55
-  motor(-75, 55);
+  motor(-45, 25);
 }
 
 void s_Right()
 {
   // 原地右轉：左輪55，右輪-75
-  motor(55, -75);
+  motor(25, -45);
 }
 
 void m_Left()
 {
   // 左轉：左輪停止，右輪55
-  motor(0, 55);
+  motor(0, 35);
 }
 
 void m_Right()
 {
   // 右轉：左輪55，右輪停止
-  motor(55, -00);
+  motor(35, -00);
 }
 
 void b_Left()
 {
   // 急左轉：左輪反轉，右輪正轉
-  motor(-55, 55);
+  motor(-25, 25);
 }
 
 void b_Right()
 {
   // 急右轉：左輪正轉，右輪反轉
-  motor(55, -55);
+  motor(25, -25);
 }
 
 void stop()
