@@ -608,6 +608,94 @@ void p_left(int degree)
   stop();
 }
 
+void p_right(int degree)
+{
+  // 目標距離（編碼器計數值）
+  int distance = degree * (930 / 180);
+  long targetCount = distance;
+  p_left_dis = distance;
+  // 清除編碼器計數器
+  leftEncoder.clearCount();
+  rightEncoder.clearCount();
+
+  // 階段 1：快速右轉到接近目標
+  const int DECEL_COUNT = 1000; // 開始減速的計數值，方便調整
+  b_Right();
+
+  while (true)
+  {
+    long leftCount = leftEncoder.getCount();
+    long rightCount = abs(rightEncoder.getCount());
+    // 當計數接近目標時停止快速階段
+    if ((leftCount >= targetCount - DECEL_COUNT) || (rightCount >= targetCount - DECEL_COUNT))
+    {
+      break;
+    }
+    delay(1);
+  }
+
+  // 階段 2：低速精調
+  motor(25, -25); // 低速右轉
+  delay(60);
+  stop();
+
+  // 階段 3：反復調整至誤差範圍內
+  const int TOLERANCE = 10;        // 容差範圍（±10 計數）
+  const int L_MIN_SPEED = 30;      // 最小驅動速度
+  const int R_MIN_SPEED = -50;     // 最小驅動速度
+  unsigned long maxAttempts = 200; // 最多調整 200 次
+  unsigned long attempts = 0;
+
+  while (attempts < maxAttempts)
+  {
+    long leftCount = leftEncoder.getCount();
+    long rightCount = abs(rightEncoder.getCount());
+    long L_error = leftCount - targetCount; // 計算誤差
+    long R_error = rightCount - targetCount;
+
+    // 誤差在容差範圍內，完成
+    if ((abs(L_error) < TOLERANCE) && (abs(R_error) < TOLERANCE))
+    {
+      break;
+    }
+
+    // 判斷各輪是否超過或未達目標
+    bool L_over = L_error > TOLERANCE;   // 左輪超過
+    bool L_under = L_error < -TOLERANCE; // 左輪未達
+    bool R_over = R_error > TOLERANCE;   // 右輪超過
+    bool R_under = R_error < -TOLERANCE; // 右輪未達
+
+    // 動態計算調整速度
+    int L_adjustSpeed = map(abs(L_error), TOLERANCE, 100, L_MIN_SPEED, 50);
+    L_adjustSpeed = constrain(L_adjustSpeed, L_MIN_SPEED, 50);
+    int R_adjustSpeed = map(abs(R_error), TOLERANCE, 100, R_MIN_SPEED, -50);
+    R_adjustSpeed = constrain(R_adjustSpeed, R_MIN_SPEED, -50);
+
+    // 根據各輪狀態同時調整
+    int L_speed = 0;
+    int R_speed = 0;
+
+    // 左輪修正
+    if (L_over)
+      L_speed = -L_adjustSpeed; // 超過 → 反轉
+    else if (L_under)
+      L_speed = L_adjustSpeed; // 未達 → 正轉
+
+    // 右輪修正
+    if (R_over)
+      R_speed = -R_adjustSpeed; // 超過 → 反轉
+    else if (R_under)
+      R_speed = R_adjustSpeed; // 未達 → 正轉
+
+    motor(L_speed, R_speed);
+    delay(30);
+    stop();
+    delay(20);
+  }
+
+  stop();
+}
+
 // ============ 伺服馬達控制函式 ============
 // SG90 伺服馬達原理：PWM 脈寬 1ms~2ms，對應角度 0~180°
 // write(角度) 直接設定目標角度，硬體自動尋位
@@ -1244,6 +1332,7 @@ void setup()
       break;
     }
   }
+  //===============循跡==============
   look = 0;
   while (true)
   {
@@ -1262,11 +1351,12 @@ void setup()
       trail();
     }
   }
+  //=============循跡==================
   p_fw_v2(150);
   release_object();
   stop();
   delay(500);
-  p_bw_v2(200);
+  p_bw_v2(150);
   p_left(150);
   stop();
   delay(500);
@@ -1281,13 +1371,14 @@ void setup()
     }
   }
   //*==================中間取貨結束=====================
+  //*=============夾取左邊的東西==================
   look = 0;
   while (true)
   {
     if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
     {
       look++;
-      p_fw_v2(250);
+      p_fw_v2(350);
       if (look == 2)
       {
         stop();
@@ -1327,7 +1418,7 @@ void setup()
   pickup_object();
   delay(500);
   p_left(180);
-  while (true)
+  while (true) // 調整轉彎角度的while迴圈
   {
     trail_b_Left();
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
@@ -1342,7 +1433,36 @@ void setup()
     if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
     {
       stop();
+      p_fw_v2(450);
       break;
+    }
+    else
+    {
+      trail();
+    }
+  }
+  p_right(70);
+  while (true)
+  {
+    trail_b_Right();
+    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
+    {
+      stop();
+      delay(500);
+      break;
+    }
+  }
+  look = 0;
+  while (true)
+  {
+    if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
+    {
+      look++;
+      if (look == 2)
+      {
+        stop();
+        break;
+      }
       p_fw_v2(250);
     }
     else
@@ -1350,6 +1470,26 @@ void setup()
       trail();
     }
   }
+  p_fw_v2(200);
+  p_bw_v2(200);
+  release_object();
+  delay(50);
+  arm_up();
+  p_left(150);
+  stop();
+  delay(500);
+  while (true)
+  {
+    trail_b_Left();
+    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
+    {
+      stop();
+      delay(500);
+      break;
+    }
+  }
+  //*=============夾取左邊的東西==================
+
   //?==================寫主程式的地方==================
 
   //! 以下不需要更動
