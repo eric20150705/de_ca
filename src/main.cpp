@@ -379,13 +379,13 @@ void backward()
 void s_Left()
 {
   // 原地左轉：左輪-75，右輪55
-  motor(-45, 25);
+  motor(25, 45);
 }
 
 void s_Right()
 {
   // 原地右轉：左輪55，右輪-75
-  motor(25, -45);
+  motor(45, 25);
 }
 
 void m_Left()
@@ -462,7 +462,7 @@ void p_left(int degree)
   }
 
   //* 階段 2：低速精調
-  motor(-25, 25); // 低速前進
+  motor(-35, 35); // 低速前進
   delay(60);
   stop();
 
@@ -550,7 +550,7 @@ void p_right(int degree)
   }
 
   // 階段 2：低速精調
-  motor(25, -25); // 低速右轉
+  motor(35, -35); // 低速右轉
   delay(60);
   stop();
 
@@ -1519,9 +1519,10 @@ void setup()
   pickup_object();
   delay(500);
   p_left(180);
+  delay(500);
   while (true) // 調整轉彎角度的while迴圈
   {
-    trail_b_Left();
+    b_Left();
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
       stop();
@@ -1545,7 +1546,7 @@ void setup()
   p_right(70);
   while (true)
   {
-    trail_b_Right();
+    b_Right();
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
       stop();
