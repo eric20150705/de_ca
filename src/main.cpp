@@ -1453,7 +1453,7 @@ void setup()
     }
   }
   //=============循跡==================
-  p_fw_v2(150);
+  p_fw_v2(250);
   release_object();
   stop();
   delay(500);
@@ -1572,8 +1572,8 @@ void setup()
       trail();
     }
   }
-  p_fw_v2(200);
-  p_bw_v2(200);
+  p_fw_v2(50);
+  p_bw_v2(50);
   release_object();
   delay(50);
   arm_up();
@@ -1691,7 +1691,7 @@ void setup()
       trail();
     }
   }
-  p_bw_v2(200);
+  p_bw_v2(250);
   release_object();
   delay(50);
   //*=====================夾取右邊的東西結束=====================
