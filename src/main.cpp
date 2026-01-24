@@ -1421,7 +1421,7 @@ void setup()
     }
   }
   pickup_object();
-  delay(500);
+  delay(250);
   p_left(180);
   while (true)
   {
@@ -1429,7 +1429,7 @@ void setup()
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
       stop();
-      delay(500);
+      delay(250);
       break;
     }
   }
@@ -1453,21 +1453,21 @@ void setup()
     }
   }
   //=============循跡==================
-  p_fw_v2(250);
+  p_fw_v2(450);
   release_object();
   stop();
-  delay(500);
-  p_bw_v2(150);
+  delay(250);
+  p_bw_v2(200);
   p_left(150);
   stop();
-  delay(500);
+  delay(250);
   while (true)
   {
     trail_b_Left();
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
       stop();
-      delay(500);
+      delay(250);
       break;
     }
   }
@@ -1500,7 +1500,7 @@ void setup()
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
       stop();
-      delay(500);
+      delay(250);
       break;
     }
   }
@@ -1517,7 +1517,7 @@ void setup()
     }
   }
   pickup_object();
-  delay(500);
+  delay(250);
   p_left(180);
   delay(500);
   while (true) // 調整轉彎角度的while迴圈
@@ -1526,7 +1526,7 @@ void setup()
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
       stop();
-      delay(500);
+      delay(250);
       break;
     }
   }
@@ -1550,7 +1550,7 @@ void setup()
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
       stop();
-      delay(500);
+      delay(250);
       break;
     }
   }
@@ -1572,21 +1572,21 @@ void setup()
       trail();
     }
   }
-  p_fw_v2(50);
+  p_fw_v2(150);
   p_bw_v2(50);
   release_object();
   delay(50);
   arm_up();
   p_left(150);
   stop();
-  delay(500);
+  delay(250);
   while (true)
   {
     trail_b_Left();
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
       stop();
-      delay(500);
+      delay(250);
       break;
     }
   }
@@ -1620,7 +1620,7 @@ void setup()
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
       stop();
-      delay(500);
+      delay(250);
       break;
     }
   }
@@ -1637,7 +1637,7 @@ void setup()
     }
   }
   pickup_object();
-  delay(500);
+  delay(250);
   p_right(180);
   while (true) // 調整轉彎角度的while迴圈
   {
@@ -1645,7 +1645,7 @@ void setup()
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
       stop();
-      delay(500);
+      delay(250);
       break;
     }
   }
@@ -1669,7 +1669,7 @@ void setup()
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
       stop();
-      delay(500);
+      delay(250);
       break;
     }
   }
