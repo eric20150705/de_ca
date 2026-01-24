@@ -37,8 +37,9 @@ ESP32Encoder rightEncoder; // 右馬達編碼器
 
 // ===== 伺服馬達物件 =====
 // ESP32Servo 提供硬體 PWM 控制，精確控制角度（0~180°）
-Servo arm;  // 手臂伺服馬達（負責上升/下降）
-Servo claw; // 爪子伺服馬達（負責開啟/關閉）
+Servo arm;    // 手臂伺服馬達（負責上升/下降）
+Servo claw;   // 爪子伺服馬達（負責開啟/關閉）
+Servo camera; // 攝像頭伺服馬達（控制視角方向）
 
 // ===== OLED (SSD1306) 顯示器 =====
 // 用於實時顯示紅外線狀態、編碼器計數、系統狀態等
@@ -60,15 +61,19 @@ int p_left_dis = 0;
 
 // ===== 伺服馬達腳位定義 =====
 // 使用 ESP32 的 GPIO 腳位連接 SG90 伺服馬達（PWM 控制）
-#define ARM_PIN 14  // 手臂伺服馬達訊號腳位
-#define CLAW_PIN 15 // 爪子伺服馬達訊號腳位
+#define ARM_PIN 14    // 手臂伺服馬達訊號腳位
+#define CLAW_PIN 15   // 爪子伺服馬達訊號腳位
+#define CAMERA_PIN 25 // 攝像頭伺服馬達訊號腳位
 
 // ===== 伺服馬達角度設定 =====
 // SG90 伺服馬達角度範圍 0~180°，根據機械結構調整以下角度
-#define ARM_UP 90    // 手臂升起角度（0° = 最低，180° = 最高）
-#define ARM_DOWN 0   // 手臂下降角度
-#define CLAW_OPEN 80 // 爪子開啟角度（夾不住物體）
-#define CLAW_CLOSE 0 // 爪子關閉角度（夾住物體）
+#define ARM_UP 90       // 手臂升起角度（0° = 最低，180° = 最高）
+#define ARM_DOWN 0      // 手臂下降角度
+#define CLAW_OPEN 80    // 爪子開啟角度（夾不住物體）
+#define CLAW_CLOSE 0    // 爪子關閉角度（夾住物體）
+#define CAMERA_FRONT 90 // 攝像頭往前看（中心位置）
+#define CAMERA_LEFT 180 // 攝像頭往左看（最大角度）
+#define CAMERA_RIGHT 0  // 攝像頭往右看（最小角度）
 
 // ===== 編碼器腳位定義 =====
 // 編碼器：計數輪子轉動的感測器
@@ -94,13 +99,16 @@ int p_left_dis = 0;
 #define MOTOR_R_FWD 2  // 右馬達正轉（GPIO2）
 #define MOTOR_R_BWD 4  // 右馬達反轉（GPIO4）
 
-// PWM 通道設定 (使用 Timer 2 的通道 8-11，Timer 0 預留給伺服馬達)
-// ESP32 LEDC（馬達速度控制晶片）有 16 個通道（0~15），分別對應 4 個定時器
-//! 警告：Timer 0 給伺服、Timer 2 給馬達，絕不可混用！
-#define CH_L_FWD 8  // 左馬達正轉通道（Timer 2, Channel 8）
-#define CH_L_BWD 9  // 左馬達反轉通道（Timer 2, Channel 9）
-#define CH_R_FWD 10 // 右馬達正轉通道（Timer 2, Channel 10）
-#define CH_R_BWD 11 // 右馬達反轉通道（Timer 2, Channel 11）
+// PWM 通道設定 (使用 Timer 2 的通道 4-7)
+// ESP32 LEDC 通道與 Timer 對應關係（固定）：
+//   Timer 0: CH 0,1,8,9   | Timer 1: CH 2,3,10,11
+//   Timer 2: CH 4,5,12,13 | Timer 3: CH 6,7,14,15
+//! 重要：ESP32Servo 佔用 Timer 0 (arm, claw) 和 Timer 1 (camera)
+//!       馬達必須使用 Timer 2 或 Timer 3 的通道，避免頻率衝突（50Hz vs 75kHz）
+#define CH_L_FWD 4 // 左馬達正轉通道（Timer 2, Channel 4）
+#define CH_L_BWD 5 // 左馬達反轉通道（Timer 2, Channel 5）
+#define CH_R_FWD 6 // 右馬達正轉通道（Timer 2, Channel 6）
+#define CH_R_BWD 7 // 右馬達反轉通道（Timer 2, Channel 7）
 
 // ===== 參數設定 =====
 #define IR_THRESHOLD 2000 // 紅外線感測閾值：>2000 判定為黑線，<2000 為白線
@@ -171,6 +179,12 @@ void claw_close();    // 爪子關閉（寫入 CLAW_CLOSE 角度）
 void pickup_object();  // 撿取物體動作序列（張爪 → 下降 → 夾爪 → 上升）
 void release_object(); // 釋放物體動作序列（下降 → 張爪）
 void prepare_pickup(); // 打開爪子並且降下手臂，準備撿取物體
+
+// --- 攝像頭伺服控制函式 ---
+void camera_front(); // 攝像頭轉向正前方（90°）
+void camera_left();  // 攝像頭轉向左側（180°）
+void camera_right(); // 攝像頭轉向右側（0°）
+void test_camera();  // 測試攝像頭伺服動作
 
 // --- 測試函式 =====
 // 功能：逐一測試各硬體元件是否正常運作，結果透過 Serial 或 OLED 輸出
@@ -675,6 +689,52 @@ void prepare_pickup()
   delay(300);
   arm_down(); // 放下手臂
   delay(300);
+}
+
+// ============ 攝像頭伺服控制函式 ============
+// 控制攝像頭視角方向，用於觀察不同角度的環境
+
+void camera_front()
+{
+  //* 攝像頭轉向正前方（90°）
+  camera.write(CAMERA_FRONT);
+}
+
+void camera_left()
+{
+  //* 攝像頭轉向左側（180°）
+  camera.write(CAMERA_LEFT);
+}
+
+void camera_right()
+{
+  //* 攝像頭轉向右側（0°）
+  camera.write(CAMERA_RIGHT);
+}
+
+void test_camera()
+{
+  //* 測試攝像頭伺服馬達動作
+  // 測試順序：前 → 左 → 前 → 右 → 前（每次回到中心便於觀察）
+  Serial.println("Camera Test: Front");
+  camera_front();
+  delay(1000);
+
+  Serial.println("Camera Test: Left");
+  camera_left();
+  delay(1000);
+
+  Serial.println("Camera Test: Front");
+  camera_front();
+  delay(1000);
+
+  Serial.println("Camera Test: Right");
+  camera_right();
+  delay(1000);
+
+  Serial.println("Camera Test: Front");
+  camera_front();
+  delay(500);
 }
 
 // ============ 測試函式 ============
@@ -1346,16 +1406,23 @@ void setup()
   // --- OLED 初始化 ---
   oled_init();
 
-  // --- 伺服馬達定時器分配 (Timer 0 給伺服馬達) ---
+  // --- 伺服馬達定時器分配 ---
   // 重要！必須在伺服初始化前執行
-  ESP32PWM::allocateTimer(0);
+  //! Timer 分配策略：
+  //  Timer 0: arm + claw（機械臂伺服）
+  //  Timer 1: camera（視覺伺服，獨立 Timer 避免干擾）
+  //  Timer 2: 馬達 PWM (LEDC 專用，不可用於伺服)
+  ESP32PWM::allocateTimer(0); // 分配 Timer 0 給 arm 和 claw
+  ESP32PWM::allocateTimer(1); // 分配 Timer 1 給 camera（避免 GPIO25/ADC2 衝突）
 
   // --- 伺服馬達初始化 ---
   // 標準 50Hz 伺服馬達，脈寬範圍 500~2400us
-  arm.setPeriodHertz(50);           // 設定頻率 50Hz
-  arm.attach(ARM_PIN, 500, 2400);   // 連結至腳位 14
-  claw.setPeriodHertz(50);          // 設定頻率 50Hz
-  claw.attach(CLAW_PIN, 500, 2400); // 連結至腳位 15
+  arm.setPeriodHertz(50);               // 設定頻率 50Hz
+  arm.attach(ARM_PIN, 500, 2400);       // 連結至腳位 14 (使用 Timer 0)
+  claw.setPeriodHertz(50);              // 設定頻率 50Hz
+  claw.attach(CLAW_PIN, 500, 2400);     // 連結至腳位 15 (使用 Timer 0)
+  camera.setPeriodHertz(50);            // 設定頻率 50Hz
+  camera.attach(CAMERA_PIN, 500, 2400); // 連結至腳位 25 (使用 Timer 1)
 
   // --- 編碼器初始化 ---
   // 使用 attachHalfQuad()，4X 計數模式，提升精度
@@ -1373,33 +1440,40 @@ void setup()
   pinMode(IR_R_PIN, INPUT);
   pinMode(IR_RR_PIN, INPUT);
 
-  // --- 馬達 PWM 初始化 (Timer 2，Timer 0 預留給伺服馬達) ---
+  // --- 馬達 PWM 初始化 (Timer 2 的通道 4-7) ---
+  //! 重要：使用 Timer 2 避免與 ESP32Servo (Timer 0, 1) 衝突
   // PWM 設定步驟：1.設定腳位為輸出  2.建立 PWM 通道  3.綁定腳位到通道
 
-  // 左馬達反轉通道
-  pinMode(MOTOR_L_BWD, OUTPUT);           // 腳位 13 為輸出
-  ledcSetup(CH_L_BWD, PWM_FREQ, PWM_RES); // 通道 9，75kHz，8-bit
-  ledcAttachPin(MOTOR_L_BWD, CH_L_BWD);   // 綁定
-
-  // 左馬達正轉通道
+  // 左馬達正轉通道（Channel 4, Timer 2）
   pinMode(MOTOR_L_FWD, OUTPUT);           // 腳位 27 為輸出
-  ledcSetup(CH_L_FWD, PWM_FREQ, PWM_RES); // 通道 8，75kHz，8-bit
+  ledcSetup(CH_L_FWD, PWM_FREQ, PWM_RES); // 通道 4，75kHz，8-bit
   ledcAttachPin(MOTOR_L_FWD, CH_L_FWD);   // 綁定
 
-  // 右馬達反轉通道
-  pinMode(MOTOR_R_BWD, OUTPUT);           // 腳位 4 為輸出
-  ledcSetup(CH_R_BWD, PWM_FREQ, PWM_RES); // 通道 11，75kHz，8-bit
-  ledcAttachPin(MOTOR_R_BWD, CH_R_BWD);   // 綁定
+  // 左馬達反轉通道（Channel 5, Timer 2）
+  pinMode(MOTOR_L_BWD, OUTPUT);           // 腳位 13 為輸出
+  ledcSetup(CH_L_BWD, PWM_FREQ, PWM_RES); // 通道 5，75kHz，8-bit
+  ledcAttachPin(MOTOR_L_BWD, CH_L_BWD);   // 綁定
 
-  // 右馬達正轉通道
+  // 右馬達正轉通道（Channel 6, Timer 2）
   pinMode(MOTOR_R_FWD, OUTPUT);           // 腳位 2 為輸出
-  ledcSetup(CH_R_FWD, PWM_FREQ, PWM_RES); // 通道 10，75kHz，8-bit
+  ledcSetup(CH_R_FWD, PWM_FREQ, PWM_RES); // 通道 6，75kHz，8-bit
   ledcAttachPin(MOTOR_R_FWD, CH_R_FWD);   // 綁定
+
+  // 右馬達反轉通道（Channel 7, Timer 2）
+  pinMode(MOTOR_R_BWD, OUTPUT);           // 腳位 4 為輸出
+  ledcSetup(CH_R_BWD, PWM_FREQ, PWM_RES); // 通道 7，75kHz，8-bit
+  ledcAttachPin(MOTOR_R_BWD, CH_R_BWD);   // 綁定
 
   stop(); // 初始化時停止馬達
           // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
 
   //?=====================主程式開始=====================
+  //* 設定攝像頭初始視角：先往前看，再轉向左側
+  camera_front();
+  delay(500);
+  camera_left();
+  delay(500);
+
   //*=====================直走，中間取貨開始=====================
   prepare_pickup();
   int look = 0;

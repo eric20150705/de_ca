@@ -31,15 +31,16 @@ pio run -t monitor   # 直接開啟監控（需先編譯成功）
 
 ## 硬體腳位速查
 
-| 元件               | 腳位           | 常數/通道                         |
-| ------------------ | -------------- | --------------------------------- |
-| 紅外線 LL/L/M/R/RR | 39/32/33/34/35 | `IR_LL_PIN` ~ `IR_RR_PIN`         |
-| 編碼器左 A/B       | 18/19          | `LEFT_ENCODER_A/B`                |
-| 編碼器右 A/B       | 23/5           | `RIGHT_ENCODER_A/B`               |
-| 左馬達正/反轉      | 27/13          | `CH_L_FWD(8)` / `CH_L_BWD(9)`     |
-| 右馬達正/反轉      | 2/4            | `CH_R_FWD(10)` / `CH_R_BWD(11)`   |
-| 手臂伺服           | 14             | `ARM_UP=90°` / `ARM_DOWN=15°`     |
-| 爪子伺服           | 15             | `CLAW_OPEN=90°` / `CLAW_CLOSE=0°` |
+| 元件               | 腳位           | 常數/通道                                                       |
+| ------------------ | -------------- | --------------------------------------------------------------- |
+| 紅外線 LL/L/M/R/RR | 39/32/33/34/35 | `IR_LL_PIN` ~ `IR_RR_PIN`                                       |
+| 編碼器左 A/B       | 18/19          | `LEFT_ENCODER_A/B`                                              |
+| 編碼器右 A/B       | 23/5           | `RIGHT_ENCODER_A/B`                                             |
+| 左馬達正/反轉      | 27/13          | `CH_L_FWD(8)` / `CH_L_BWD(9)`                                   |
+| 右馬達正/反轉      | 2/4            | `CH_R_FWD(10)` / `CH_R_BWD(11)`                                 |
+| 手臂伺服           | 14             | `ARM_UP=90°` / `ARM_DOWN=15°`                                   |
+| 爪子伺服           | 15             | `CLAW_OPEN=90°` / `CLAW_CLOSE=0°`                               |
+| **攝像頭伺服**     | **25**         | **`CAMERA_FRONT=90°` / `CAMERA_LEFT=180°` / `CAMERA_RIGHT=0°`** |
 
 ## Better Comments 使用規範
 
@@ -104,6 +105,11 @@ arm_down()    // 手臂下降 (ARM_DOWN=0°)
 claw_open()   // 爪子開啟 (CLAW_OPEN=90°)
 claw_close()  // 爪子關閉 (CLAW_CLOSE=0°)
 
+// 攝像頭視角控制（新增）
+camera_front()  // 攝像頭轉向正前方（90°）
+camera_left()   // 攝像頭轉向左側（180°）
+camera_right()  // 攝像頭轉向右側（0°）
+
 // 複合動作
 pickup_object()    // 張爪→放下手臂→夾爪→抬手臂
 release_object()   // 放下手臂→張爪
@@ -117,15 +123,49 @@ test_IR()              // 輸出 5 路紅外線讀數 (Serial)
 test_encoder()         // 輸出左右編碼器計數值
 test_max_speed()       // 極限速度測試：PWM=255 測量左右輪最大速度
 test_speed()           // 即時速度測試：每 100ms 印出左右輪速度
+test_camera()          // 攝像頭伺服測試：前→左→前→右→前（間隔 1 秒）
 oled_show_ir_status()  // 在 OLED 顯示 IR & 編碼器狀態及極限速度
 ```
 
 ## PWM 定時器規則（重要）
 
-- **Timer 0**：伺服馬達專用 — 在 `setup()` 中必須 `ESP32PWM::allocateTimer(0)` 先行分配
-- **Timer 2**：馬達 PWM (通道 8-11)
-- PWM 設定：75kHz / 8-bit (0~255)
-- **注意**：不要改變 Timer 分配，否則伺服馬達無法正常工作
+### Timer 與 Channel 固定對應關係
+
+ESP32 LEDC 的 16 個通道**不是任意分配**，而是固定綁定到 4 個 Timer：
+
+| Timer       | 控制的 Channels | 當前用途              | 頻率  |
+| ----------- | --------------- | --------------------- | ----- |
+| **Timer 0** | 0, 1, 8, 9      | arm + claw 伺服       | 50Hz  |
+| **Timer 1** | 2, 3, 10, 11    | camera 伺服           | 50Hz  |
+| **Timer 2** | 4, 5, 12, 13    | **馬達 PWM (CH 4-7)** | 75kHz |
+| **Timer 3** | 6, 7, 14, 15    | （保留未使用）        | -     |
+
+### ⚠️ 關鍵限制
+
+1. **同一 Timer 的所有 Channels 必須使用相同頻率**
+2. ESP32Servo 使用 Timer 0 (Channels 0, 1) 和 Timer 1 (Channel 2)
+3. 馬達 PWM **必須避開 Channels 0-3, 8-11**，使用 Timer 2 或 Timer 3 的通道
+
+### 初始化順序
+
+```cpp
+// 1. 先分配所有 ESP32Servo 的 Timer
+ESP32PWM::allocateTimer(0); // arm + claw
+ESP32PWM::allocateTimer(1); // camera
+
+// 2. 再初始化伺服馬達
+arm.attach(ARM_PIN, 500, 2400);
+claw.attach(CLAW_PIN, 500, 2400);
+camera.attach(CAMERA_PIN, 500, 2400);
+
+// 3. 最後初始化馬達 PWM（使用 Timer 2 的 Channels 4-7）
+ledcSetup(CH_L_FWD, 75000, 8); // Channel 4
+ledcSetup(CH_L_BWD, 75000, 8); // Channel 5
+ledcSetup(CH_R_FWD, 75000, 8); // Channel 6
+ledcSetup(CH_R_BWD, 75000, 8); // Channel 7
+```
+
+- **注意**：GPIO 25 屬於 ADC2，在使用 WiFi (OTA) 時需使用獨立 Timer 避免干擾
 
 ## 程式結構與編程模式
 
@@ -155,10 +195,13 @@ oled_show_ir_status()  // 在 OLED 顯示 IR & 編碼器狀態及極限速度
 
 ```cpp
 // 1. 伺服定時器分配（必須最先）
-ESP32PWM::allocateTimer(0);
+ESP32PWM::allocateTimer(0); // Timer 0 給 arm & claw
+ESP32PWM::allocateTimer(1); // Timer 1 給 camera（獨立 Timer 避免 GPIO25/WiFi 衝突）
 
 // 2. 伺服初始化（50Hz, 脈寬 500~2400us）
-arm.attach(ARM_PIN, 500, 2400);
+arm.attach(ARM_PIN, 500, 2400);    // 連結至 Timer 0
+claw.attach(CLAW_PIN, 500, 2400);  // 連結至 Timer 0
+camera.attach(CAMERA_PIN, 500, 2400); // 連結至 Timer 1
 
 // 3. 編碼器初始化（使用 attachHalfQuad，啟用上拉電阻）
 ESP32Encoder::useInternalWeakPullResistors = puType::up;
@@ -272,7 +315,10 @@ while (true) {
 | 右馬達正轉速度 | 58     | 略高於左輪以補償機械差異        |
 | IR 閾值        | 2000   | 黑線/白線辨別標準，需依環境調整 |
 | 手臂 UP 角度   | 90°    | SG90 伺服馬達角度範圍 0~180°    |
-| 爪子開啟角度   | 90°    | 根據爪子結構可調                |
+| 爪子開啟角度   | 80°    | 根據爪子結構可調                |
+| 攝像頭前視角度 | 90°    | 正中心位置                      |
+| 攝像頭左視角度 | 180°   | 最大左轉                        |
+| 攝像頭右視角度 | 0°     | 最大右轉                        |
 
 ## 常見問題排查
 
@@ -319,13 +365,13 @@ while (true) {
 
 ### 問題 5：伺服馬達無反應
 
-**症狀**：`arm_up()` 或 `claw_open()` 無效
-**原因**：Timer 0 未正確分配
+**症狀**：`arm_up()` 或 `claw_open()` 或 `camera_front()` 無效
+**原因**：Timer 未正確分配
 **解決方法**：
 
-1. 確認 `setup()` 中有 `ESP32PWM::allocateTimer(0);`
-2. 必須在 `arm.attach()` 之前執行
-3. 檢查腳位連接是否正確
+1. 確認 `setup()` 中有 `ESP32PWM::allocateTimer(0)` 和 `ESP32PWM::allocateTimer(1)`
+2. 必須在所有 `.attach()` 之前執行
+3. 檢查腳位連接是否正確（arm=14, claw=15, camera=25）
 
 ## 專案狀態與待實作項目
 
@@ -333,7 +379,9 @@ while (true) {
 
 - 馬達 PWM 控制（前進、後退、轉向）
 - 編碼器讀取與速度閉環距離控制（`p_fw_v2()`, `p_bw_v2()`）
-- 伺服馬達初始化和角度控制
+- 三個伺服馬達初始化和角度控制（arm, claw, camera）
+- 攝像頭視角控制系統（前/左/右三方向）
+- 雙 Timer 架構（Timer 0: arm+claw, Timer 1: camera）
 - 紅外線感測和循跡邏輯框架
 - OLED 顯示和 Serial 監控
 - Better Comments 註解系統
