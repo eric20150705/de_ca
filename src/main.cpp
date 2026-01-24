@@ -1401,7 +1401,7 @@ void setup()
 
   // --- OTA 無線燒入窗口（reset 後 5 秒內可接收 OTA）---
   // 若需要 OTA 更新，請在 reset 後立即觸發上傳
-  ota_setup();
+  // ota_setup();
 
   // --- OLED 初始化 ---
   oled_init();
@@ -1486,6 +1486,10 @@ void setup()
       {
         stop();
         break;
+      }
+      if (look == 1)
+      {
+        camera_front();
       }
       p_fw_v2(250);
     }
