@@ -72,7 +72,7 @@ int p_left_dis = 0;
 #define CLAW_OPEN 80    // 爪子開啟角度（夾不住物體）
 #define CLAW_CLOSE 0    // 爪子關閉角度（夾住物體）
 #define CAMERA_FRONT 90 // 攝像頭往前看（中心位置）
-#define CAMERA_LEFT 180 // 攝像頭往左看（最大角度）
+#define CAMERA_LEFT 170 // 攝像頭往左看（最大角度）
 #define CAMERA_RIGHT 0  // 攝像頭往右看（最小角度）
 
 // ===== 編碼器腳位定義 =====
@@ -1469,10 +1469,24 @@ void setup()
 
   //?=====================主程式開始=====================
   //* 設定攝像頭初始視角：先往前看，再轉向左側
+  delay(1000);
   camera_front();
   delay(500);
   camera_left();
   delay(500);
+  int count = 0;
+
+  while (true)
+  {
+    speed_control(20, 20);
+    count++;
+    if (count >= 60)
+    {
+      stop();
+      delay(5000);
+      break;
+    }
+  }
 
   //*=====================直走，中間取貨開始=====================
   prepare_pickup();
