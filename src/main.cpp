@@ -15,8 +15,7 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wreturn-type"
 #pragma GCC diagnostic ignored "-Wunused-variable"
-#include <HUSKYLENS.h> // HuskyLens AI 視覺識別模組（待整合）
-// TODO: 整合 HuskyLens 顏色識別（需設定 I2C 並抑制編譯警告）
+#include <HUSKYLENS.h> // HuskyLens AI 視覺識別模組
 #pragma GCC diagnostic pop
 #include <esp32-hal-ledc.h> // ESP32 LEDC PWM 驅動庫，用於馬達 PWM 控制
 
@@ -51,6 +50,10 @@ Servo camera; // 攝像頭伺服馬達（控制視角方向）
 #define OLED_SCL 22                                                   // I2C 時鐘線（SCL）腳位
 Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET); // OLED 物件
 bool oled_ready = false;                                              // OLED 初始化標誌位
+
+// ===== HuskyLens AI 視覺模組 =====
+// 使用 I2C 與 OLED 共用腳位（SDA=21, SCL=22），位址不衝突（HuskyLens=0x32, OLED=0x3C）
+HUSKYLENS huskylens; // HuskyLens 物件
 
 // ===== 極限速度測試結果（全域變數）=====
 // 用於儲存 test_max_speed() 的測試結果，讓 oled_show_ir_status() 也能顯示
@@ -145,6 +148,10 @@ int IR_RR_read(); // 讀取最右側紅外線感測器
 // --- OLED 顯示相關函式 ---
 void oled_init();           // 初始化 OLED 顯示器（I2C 通訊）
 void oled_show_ir_status(); // 在 OLED 顯示紅外線狀態和編碼器計數
+
+// --- HuskyLens AI 視覺模組函式 ---
+void huskylens_init(); // 初始化 HuskyLens（I2C 通訊，與 OLED 共用）
+void test_huskylens(); // 測試 HuskyLens 顏色辨識（Serial 輸出 ID 1/2/3 的 X 座標）
 
 // --- 馬達控制相關函式 ---
 // 低層函式：直接控制左右馬達 PWM 值
@@ -260,6 +267,50 @@ void oled_init()
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
+}
+
+// ============ HuskyLens AI 視覺模組函式 ============
+
+//* HuskyLens 初始化
+// 使用 I2C 通訊，與 OLED 共用 SDA/SCL（Wire 已在 oled_init() 中初始化）
+// 注意：辨識模式需在 HuskyLens 鏡頭上預先設定好
+void huskylens_init()
+{
+  //? 若連線失敗會持續重試，檢查：1.接線 2.I2C 地址 3.鏡頭電源
+  while (!huskylens.begin(Wire))
+  {
+    Serial.println("HuskyLens I2C 連線失敗，重試中...");
+    Serial.println("1. 檢查 SDA/SCL 接線是否正確？");
+    Serial.println("2. 檢查 HuskyLens 是否已開機？");
+    delay(500);
+  }
+  Serial.println("HuskyLens 初始化成功！");
+}
+
+//* HuskyLens 顏色辨識測試
+// 輸出 ID 1, 2, 3 的 X 中心座標至 Serial
+// 用法：在 setup() 中使用 while(true) { test_huskylens(); } 進行測試
+void test_huskylens()
+{
+  // 向 HuskyLens 請求辨識資料
+  huskylens.request();
+
+  // 檢查是否有偵測到方塊
+  if (huskylens.countBlocks() > 0)
+  {
+    // 輸出 ID 1, 2, 3 的 X 中心座標
+    //? xCenter 範圍 0~320，螢幕中心約 160
+    Serial.print("顏色1 X: ");
+    Serial.print(huskylens.getBlock(1, 0).xCenter);
+    Serial.print(", 顏色2 X: ");
+    Serial.print(huskylens.getBlock(2, 0).xCenter);
+    Serial.print(", 顏色3 X: ");
+    Serial.println(huskylens.getBlock(3, 0).xCenter);
+  }
+  else
+  {
+    Serial.println("未偵測到任何顏色方塊");
+  }
 }
 
 void oled_show_ir_status()
@@ -1406,6 +1457,10 @@ void setup()
 
   // --- OLED 初始化 ---
   oled_init();
+
+  // --- HuskyLens 初始化 ---
+  // I2C 已在 oled_init() 中初始化，直接連線
+  huskylens_init();
 
   // --- 伺服馬達定時器分配 ---
   // 重要！必須在伺服初始化前執行
