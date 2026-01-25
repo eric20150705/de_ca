@@ -36,11 +36,11 @@ pio run -t monitor   # 直接開啟監控（需先編譯成功）
 | 紅外線 LL/L/M/R/RR | 39/32/33/34/35 | `IR_LL_PIN` ~ `IR_RR_PIN`                                       |
 | 編碼器左 A/B       | 18/19          | `LEFT_ENCODER_A/B`                                              |
 | 編碼器右 A/B       | 23/5           | `RIGHT_ENCODER_A/B`                                             |
-| 左馬達正/反轉      | 27/13          | `CH_L_FWD(8)` / `CH_L_BWD(9)`                                   |
-| 右馬達正/反轉      | 2/4            | `CH_R_FWD(10)` / `CH_R_BWD(11)`                                 |
-| 手臂伺服           | 14             | `ARM_UP=90°` / `ARM_DOWN=15°`                                   |
-| 爪子伺服           | 15             | `CLAW_OPEN=90°` / `CLAW_CLOSE=0°`                               |
-| **攝像頭伺服**     | **25**         | **`CAMERA_FRONT=90°` / `CAMERA_LEFT=180°` / `CAMERA_RIGHT=0°`** |
+| 左馬達正/反轉      | 27/13          | `CH_L_FWD(4)` / `CH_L_BWD(5)`                                   |
+| 右馬達正/反轉      | 2/4            | `CH_R_FWD(6)` / `CH_R_BWD(7)`                                   |
+| 手臂伺服           | 14             | `ARM_UP=90°` / `ARM_DOWN=0°`                                    |
+| 爪子伺服           | 15             | `CLAW_OPEN=80°` / `CLAW_CLOSE=0°`                               |
+| **攝像頭伺服**     | **25**         | **`CAMERA_FRONT=90°` / `CAMERA_LEFT=170°` / `CAMERA_RIGHT=0°`** |
 
 ## Better Comments 使用規範
 
@@ -71,8 +71,8 @@ motor(int L, int R);  // L/R: -255~255，正值前進、負值後退（像水龍
 // 高層動作（基於 motor() 實作）
 forward()    // 直線前進 (55, 55) — 可調整補償偏移
 backward()   // 直線後退 (-25, -25) — 簡易版，無速度閉環
-s_Left()     // 原地左轉 (-45, 25)
-s_Right()    // 原地右轉 (25, -45)
+s_Left()     // 差速左轉 (25, 45)
+s_Right()    // 差速右轉 (45, 25)
 m_Left()     // 左轉 (0, 35)
 m_Right()    // 右轉 (35, 0)
 b_Left()     // 急轉左 (-55, 55)
@@ -102,12 +102,12 @@ p_right(int distance)  // 右轉指定角度（單位：度°，需轉換為計�
 ```cpp
 arm_up()      // 手臂升起 (ARM_UP=90°)
 arm_down()    // 手臂下降 (ARM_DOWN=0°)
-claw_open()   // 爪子開啟 (CLAW_OPEN=90°)
+claw_open()   // 爪子開啟 (CLAW_OPEN=80°)
 claw_close()  // 爪子關閉 (CLAW_CLOSE=0°)
 
 // 攝像頭視角控制（新增）
 camera_front()  // 攝像頭轉向正前方（90°）
-camera_left()   // 攝像頭轉向左側（180°）
+camera_left()   // 攝像頭轉向左側（170°）
 camera_right()  // 攝像頭轉向右側（0°）
 
 // 複合動作
@@ -210,7 +210,7 @@ leftEncoder.attachHalfQuad(LEFT_ENCODER_A, LEFT_ENCODER_B);
 // 4. I2C (OLED) 初始化
 Wire.begin(OLED_SDA, OLED_SCL);
 
-// 5. PWM 初始化（Timer 2，Channel 8-11）
+// 5. PWM 初始化（Timer 2，Channel 4-7）
 ledcSetup(CH_L_FWD, PWM_FREQ, PWM_RES);
 ledcAttachPin(MOTOR_L_FWD, CH_L_FWD);
 ```
@@ -317,7 +317,7 @@ while (true) {
 | 手臂 UP 角度   | 90°    | SG90 伺服馬達角度範圍 0~180°    |
 | 爪子開啟角度   | 80°    | 根據爪子結構可調                |
 | 攝像頭前視角度 | 90°    | 正中心位置                      |
-| 攝像頭左視角度 | 180°   | 最大左轉                        |
+| 攝像頭左視角度 | 170°   | 最大左轉                        |
 | 攝像頭右視角度 | 0°     | 最大右轉                        |
 
 ## 常見問題排查
@@ -413,4 +413,4 @@ while (true) {
 - **腳位**：`XXX_PIN` (如 `IR_LL_PIN`, `ARM_PIN`)
 - **PWM 通道**：`CH_X_XXX` (如 `CH_L_FWD`)
 - **角度常數**：`XXX_UP/DOWN/OPEN/CLOSE`
-- **函式**：動作類用英文縮寫（`s_Left` = 原地左轉，`b_Left` = 急轉左）
+- **函式**：動作類用英文縮寫（`s_Left` = 差速左轉，`b_Left` = 急轉左）

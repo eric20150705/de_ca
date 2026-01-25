@@ -158,12 +158,12 @@ void test_huskylens(); // 測試 HuskyLens 顏色辨識（Serial 輸出 ID 1/2/3
 void motor(int L, int R); // 馬達控制 (L:左輪速度 -255~255, R:右輪速度 -255~255)
 
 // 高層動作函式：基於 motor() 實現的複合動作
-void forward();       // 直線前進 (左輪55，右輪58 - 補償左偏)
-void backward();      // 直線後退 (左輪-55，右輪-55)
-void s_Left();        // 原地左轉 (左輪-75，右輪55)
-void s_Right();       // 原地右轉 (左輪55，右輪-75)
-void m_Left();        // 左轉 (左輪停止，右輪55)
-void m_Right();       // 右轉 (左輪55，右輪停止)
+void forward();       // 直線前進 (左輪55，右輪55)
+void backward();      // 直線後退 (左輪-25，右輪-25)
+void s_Left();        // 差速左轉 (左輪25，右輪45)
+void s_Right();       // 差速右轉 (左輪45，右輪25)
+void m_Left();        // 左轉 (左輪停止，右輪35)
+void m_Right();       // 右轉 (左輪35，右輪停止)
 void b_Left();        // 急左轉 (左輪-55，右輪55 - 左輪反轉)
 void b_Right();       // 急右轉 (左輪55，右輪-55 - 右輪反轉)
 void trail_b_Left();  // 急左轉 (左輪-35，右輪35 - 左輪反轉)
@@ -188,7 +188,7 @@ void release_object(); // 釋放物體動作序列（下降 → 張爪）
 void prepare_pickup(); // 打開爪子並且降下手臂，準備撿取物體
 // --- 攝像頭伺服控制函式 ---
 void camera_front(); // 攝像頭轉向正前方（90°）
-void camera_left();  // 攝像頭轉向左側（180°）
+void camera_left();  // 攝像頭轉向左側（170°）
 void camera_right(); // 攝像頭轉向右側（0°）
 void test_camera();  // 測試攝像頭伺服動作
 
@@ -424,7 +424,7 @@ void motor(int L, int R)
 
 void forward()
 {
-  //* 直線前進（左輪 55、右輪 55 - 補償左偏）
+  //* 直線前進（左輪 55、右輪 55）
   //? 調參指引：循跡速度調整
   //  太慢 → 增加數值：55→65→75
   //  太快轉彎跟不上 → 減少數值：55→45→35
@@ -442,26 +442,26 @@ void backward()
 
 void s_Left()
 {
-  // 原地左轉：左輪-75，右輪55
+  // 差速左轉：左輪25，右輪45（兩輪皆正轉，右輪較快）
   motor(25, 45);
 }
 
 void s_Right()
 {
-  // 原地右轉：左輪55，右輪-75
+  // 差速右轉：左輪45，右輪25（兩輪皆正轉，左輪較快）
   motor(45, 25);
 }
 
 void m_Left()
 {
-  // 左轉：左輪停止，右輪55
+  // 左轉：左輪停止，右輪35
   motor(0, 35);
 }
 
 void m_Right()
 {
-  // 右轉：左輪55，右輪停止
-  motor(35, -00);
+  // 右轉：左輪35，右輪停止
+  motor(35, 0);
 }
 
 void b_Left()
@@ -754,7 +754,7 @@ void camera_front()
 
 void camera_left()
 {
-  //* 攝像頭轉向左側（180°）
+  //* 攝像頭轉向左側（170°）
   camera.write(CAMERA_LEFT);
 }
 
