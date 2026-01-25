@@ -179,7 +179,6 @@ void claw_close();    // 爪子關閉（寫入 CLAW_CLOSE 角度）
 void pickup_object();  // 撿取物體動作序列（張爪 → 下降 → 夾爪 → 上升）
 void release_object(); // 釋放物體動作序列（下降 → 張爪）
 void prepare_pickup(); // 打開爪子並且降下手臂，準備撿取物體
-
 // --- 攝像頭伺服控制函式 ---
 void camera_front(); // 攝像頭轉向正前方（90°）
 void camera_left();  // 攝像頭轉向左側（180°）
@@ -481,10 +480,10 @@ void p_left(int degree)
   stop();
 
   //* 階段 3：反復調整至誤差範圍內
-  const int TOLERANCE = 10;        // 容差範圍（±10 計數）
-  const int L_MIN_SPEED = -50;     // 最小驅動速度
-  const int R_MIN_SPEED = 30;      // 最小驅動速度
-  unsigned long maxAttempts = 200; // 最多調整 100 次
+  const int TOLERANCE = 10;       // 容差範圍（±10 計數）
+  const int L_MIN_SPEED = -50;    // 最小驅動速度
+  const int R_MIN_SPEED = 30;     // 最小驅動速度
+  unsigned long maxAttempts = 25; // 最多調整 25 次
   unsigned long attempts = 0;
 
   while (attempts < maxAttempts)
@@ -532,6 +531,7 @@ void p_left(int degree)
     delay(30);
     stop();
     delay(20);
+    attempts++;
   }
 
   stop();
@@ -569,10 +569,10 @@ void p_right(int degree)
   stop();
 
   // 階段 3：反復調整至誤差範圍內
-  const int TOLERANCE = 10;        // 容差範圍（±10 計數）
-  const int L_MIN_SPEED = 30;      // 最小驅動速度
-  const int R_MIN_SPEED = -50;     // 最小驅動速度
-  unsigned long maxAttempts = 200; // 最多調整 200 次
+  const int TOLERANCE = 10;       // 容差範圍（±10 計數）
+  const int L_MIN_SPEED = 30;     // 最小驅動速度
+  const int R_MIN_SPEED = -50;    // 最小驅動速度
+  unsigned long maxAttempts = 25; // 最多調整 25 次
   unsigned long attempts = 0;
 
   while (attempts < maxAttempts)
@@ -620,6 +620,7 @@ void p_right(int degree)
     delay(30);
     stop();
     delay(20);
+    attempts++;
   }
 
   stop();
@@ -1483,7 +1484,7 @@ void setup()
     if (count >= 60)
     {
       stop();
-      delay(5000);
+      delay(1000);
       break;
     }
   }
@@ -1550,7 +1551,7 @@ void setup()
   stop();
   delay(250);
   p_bw_v2(200);
-  p_left(150);
+  p_left(140);
   stop();
   delay(250);
   while (true)
@@ -1584,17 +1585,16 @@ void setup()
     }
   }
   // 十字路口左轉
-  p_left(70);
+  p_left(80);
   // 十字路口左轉結束
   while (true)
   {
     trail_b_Left();
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
-      stop();
-      delay(250);
       break;
     }
+    delay(20);
   }
   while (true)
   {
@@ -1635,16 +1635,15 @@ void setup()
       trail();
     }
   }
-  p_right(70);
+  p_right(80);
   while (true)
   {
     b_Right();
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
-      stop();
-      delay(250);
       break;
     }
+    delay(20);
   }
   look = 0;
   while (true)
@@ -1664,8 +1663,7 @@ void setup()
       trail();
     }
   }
-  p_fw_v2(150);
-  p_bw_v2(50);
+  p_fw_v2(50);
   release_object();
   delay(50);
   arm_up();
@@ -1704,17 +1702,16 @@ void setup()
     }
   }
   // 十字路口右轉
-  p_right(70);
+  p_right(80);
   // 十字路口右轉結束
   while (true)
   {
     trail_b_Right();
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
-      stop();
-      delay(250);
       break;
     }
+    delay(20);
   }
   while (true)
   {
@@ -1736,10 +1733,9 @@ void setup()
     trail_b_Right();
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
-      stop();
-      delay(250);
       break;
     }
+    delay(20);
   }
   while (true)
   {
@@ -1754,16 +1750,15 @@ void setup()
       trail();
     }
   }
-  p_left(70);
+  p_left(80);
   while (true)
   {
     trail_b_Left();
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
-      stop();
-      delay(250);
       break;
     }
+    delay(20);
   }
   look = 0;
   while (true)
@@ -1783,6 +1778,8 @@ void setup()
       trail();
     }
   }
+  stop();
+  delay(250);
   p_bw_v2(250);
   release_object();
   delay(50);
