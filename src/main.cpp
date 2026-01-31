@@ -695,7 +695,7 @@ void arm_down_slow()
   for (int angle = ARM_UP; angle >= ARM_DOWN; angle -= 2)
   {
     arm.write(angle);
-    delay(30);
+    delay(15);
   }
 }
 
