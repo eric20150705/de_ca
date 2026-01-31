@@ -169,6 +169,7 @@ void b_Right();       // 急右轉 (左輪55，右輪-55 - 右輪反轉)
 void trail_b_Left();  // 急左轉 (左輪-35，右輪35 - 左輪反轉)
 void trail_b_Right(); // 急右轉 (左輪35，右輪-35 - 右輪反轉)
 void stop();          // 停止（兩輪速度都為 0）
+void turn_turn();     // 迴轉
 
 // 距離控制函式：根據編碼器反饋控制精確距離
 void p_left(int distance);  // 設定距離左轉
@@ -430,7 +431,7 @@ void forward()
   //  太快轉彎跟不上 → 減少數值：55→45→35
   //  偏左 → 增加左輪：motor(60, 55)
   //  偏右 → 增加右輪：motor(55, 60)
-  motor(55, 55);
+  motor(200, 200);
 }
 
 void backward()
@@ -443,25 +444,25 @@ void backward()
 void s_Left()
 {
   // 差速左轉：左輪25，右輪45（兩輪皆正轉，右輪較快）
-  motor(25, 45);
+  motor(140, 200);
 }
 
 void s_Right()
 {
   // 差速右轉：左輪45，右輪25（兩輪皆正轉，左輪較快）
-  motor(45, 25);
+  motor(200, 160);
 }
 
 void m_Left()
 {
   // 左轉：左輪停止，右輪35
-  motor(0, 35);
+  motor(0, 200);
 }
 
 void m_Right()
 {
   // 右轉：左輪35，右輪停止
-  motor(35, 0);
+  motor(200, 0);
 }
 
 void b_Left()
@@ -580,8 +581,8 @@ void p_left(int degree)
 
     motor(L_speed, R_speed);
     delay(30);
-    stop();
-    delay(10);
+    // stop();
+    // delay(10);
     attempts++;
   }
 }
@@ -667,10 +668,28 @@ void p_right(int degree)
 
     motor(L_speed, R_speed);
     delay(30);
-    stop();
-    delay(10);
+    // stop();
+    // delay(10);
     attempts++;
   }
+}
+
+void turn_turn()
+{
+  p_left(130);
+  stop();
+  delay(20);
+  while (true)
+  {
+    trail_b_Left();
+    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
+    {
+      break;
+    }
+    delay(20);
+  }
+  stop();
+  delay(100);
 }
 
 // ============ 伺服馬達控制函式 ============
@@ -1564,9 +1583,10 @@ void setup()
       trail();
     }
   }
+  delay(100);
   pickup_object();
-  delay(250);
-  p_left(180);
+  p_left(165);
+  delay(20);
   while (true)
   {
     trail_b_Left();
@@ -1597,19 +1617,11 @@ void setup()
     }
   }
   //=============循跡==================
-  p_fw_v2(450);
+  p_bw_v2(150);
   release_object();
   stop();
   p_bw_v2(200);
-  p_left(150);
-  while (true)
-  {
-    trail_b_Left();
-    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
-    {
-      break;
-    }
-  }
+  turn_turn();
   //*=====================中間取貨結束=====================
   //*=====================夾取左邊的東西=====================
   look = 0;
@@ -1654,8 +1666,8 @@ void setup()
       trail();
     }
   }
+  delay(100);
   pickup_object();
-  delay(250);
   p_left(180);
   while (true) // 調整轉彎角度的while迴圈
   {
@@ -1706,18 +1718,10 @@ void setup()
       trail();
     }
   }
-  p_fw_v2(50);
+  p_bw_v2(100);
   release_object();
   arm_up();
-  p_left(130);
-  while (true)
-  {
-    trail_b_Left();
-    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
-    {
-      break;
-    }
-  }
+  turn_turn();
   //*=====================夾取左邊的東西結束=====================
   prepare_pickup();
   //*=====================夾取右邊的東西=====================
@@ -1763,8 +1767,8 @@ void setup()
       trail();
     }
   }
+  delay(100);
   pickup_object();
-  delay(250);
   p_right(180);
   while (true) // 調整轉彎角度的while迴圈
   {
@@ -1818,7 +1822,7 @@ void setup()
   }
   stop();
   delay(250);
-  p_bw_v2(250);
+  p_bw_v2(200);
   release_object();
   delay(50);
   //*=====================夾取右邊的東西結束=====================
