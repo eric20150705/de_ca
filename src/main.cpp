@@ -581,11 +581,9 @@ void p_left(int degree)
     motor(L_speed, R_speed);
     delay(30);
     stop();
-    delay(20);
+    delay(10);
     attempts++;
   }
-
-  stop();
 }
 
 void p_right(int degree)
@@ -670,11 +668,9 @@ void p_right(int degree)
     motor(L_speed, R_speed);
     delay(30);
     stop();
-    delay(20);
+    delay(10);
     attempts++;
   }
-
-  stop();
 }
 
 // ============ 伺服馬達控制函式 ============
@@ -738,9 +734,9 @@ void prepare_pickup()
 {
   // 打開爪子並且降下手臂，準備撿取物體
   claw_open(); // 張爪子
-  delay(300);
+  // delay(300);
   arm_down(); // 放下手臂
-  delay(300);
+  // delay(300);
 }
 
 // ============ 攝像頭伺服控制函式 ============
@@ -1606,7 +1602,6 @@ void setup()
   stop();
   p_bw_v2(200);
   p_left(150);
-  stop();
   while (true)
   {
     trail_b_Left();
@@ -1667,8 +1662,6 @@ void setup()
     b_Left();
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
-      stop();
-      delay(250);
       break;
     }
   }
@@ -1688,7 +1681,7 @@ void setup()
   p_right(80);
   while (true)
   {
-    b_Right();
+    trail_b_Right();
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
       break;
@@ -1716,14 +1709,12 @@ void setup()
   p_fw_v2(50);
   release_object();
   arm_up();
-  p_left(150);
-  stop();
+  p_left(130);
   while (true)
   {
     trail_b_Left();
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
-      stop(); // 停止馬達
       break;
     }
   }
