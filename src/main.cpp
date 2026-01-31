@@ -716,9 +716,9 @@ void pickup_object()
   // 撿取物體的完整動作序列
 
   claw_close(); // 夾爪子
-  delay(300);
+  delay(100);
   arm_up(); // 抬起手臂
-  delay(300);
+  // delay(100);
 }
 
 void release_object()
