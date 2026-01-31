@@ -1527,9 +1527,9 @@ void setup()
   //* 設定攝像頭初始視角：先往前看，再轉向左側
   delay(1000);
   camera_front();
-  delay(500);
+  delay(20);
   camera_left();
-  delay(500);
+  delay(20);
   int count = 0;
 
   while (true)
@@ -1539,7 +1539,7 @@ void setup()
     if (count >= 60)
     {
       stop();
-      delay(1000);
+      delay(200);
       break;
     }
   }
@@ -1577,7 +1577,7 @@ void setup()
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
       stop();
-      delay(250);
+      delay(50);
       break;
     }
   }
@@ -1604,18 +1604,14 @@ void setup()
   p_fw_v2(450);
   release_object();
   stop();
-  delay(250);
   p_bw_v2(200);
-  p_left(140);
+  p_left(150);
   stop();
-  delay(250);
   while (true)
   {
     trail_b_Left();
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
-      stop();
-      delay(250);
       break;
     }
   }
@@ -1666,7 +1662,6 @@ void setup()
   pickup_object();
   delay(250);
   p_left(180);
-  delay(500);
   while (true) // 調整轉彎角度的while迴圈
   {
     b_Left();
@@ -1720,18 +1715,15 @@ void setup()
   }
   p_fw_v2(50);
   release_object();
-  delay(50);
   arm_up();
   p_left(150);
   stop();
-  delay(250);
   while (true)
   {
     trail_b_Left();
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
-      stop();
-      delay(250);
+      stop(); // 停止馬達
       break;
     }
   }
