@@ -347,8 +347,8 @@ void motor(int L, int R)
   // ===== 左輪控制 =====
   if (L > 0) // 正轉（前進）
   {
-    ledcWrite(CH_L_FWD, L);
-    ledcWrite(CH_L_BWD, 0); // 反轉通道必須為 0
+    ledcWrite(CH_L_FWD, 0);
+    ledcWrite(CH_L_BWD, L); // 反轉通道必須為 0
   }
   else // 反轉（後退）
   {
@@ -359,8 +359,8 @@ void motor(int L, int R)
   // ===== 右輪控制 =====
   if (R > 0) // 正轉（前進）
   {
-    ledcWrite(CH_R_FWD, R);
-    ledcWrite(CH_R_BWD, 0);
+    ledcWrite(CH_R_FWD, 0);
+    ledcWrite(CH_R_BWD, R);
   }
   else // 反轉（後退）
   {
@@ -380,19 +380,19 @@ void forward()
   //  太快轉彎跟不上 → 減少數值：55→45→35
   //  偏左 → 增加左輪：motor(60, 55)
   //  偏右 → 增加右輪：motor(55, 60)
-  motor(200, 200);
+  motor(55, 55);
 }
 
 void s_Left()
 {
   // 差速左轉：左輪25，右輪45（兩輪皆正轉，右輪較快）
-  motor(140, 200);
+  motor(80, 120);
 }
 
 void s_Right()
 {
   // 差速右轉：左輪45，右輪25（兩輪皆正轉，左輪較快）
-  motor(200, 160);
+  motor(120, 80);
 }
 
 void m_Left()
