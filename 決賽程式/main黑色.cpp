@@ -19,6 +19,16 @@
 #pragma GCC diagnostic pop
 #include <esp32-hal-ledc.h> // ESP32 LEDC PWM 驅動庫，用於馬達 PWM 控制
 
+// ===== OTA 無線燒入設定 =====
+// WiFi 憑證（用於 OTA 更新）
+#define WIFI_SSID "Singular_AI"
+#define WIFI_PASSWORD "Singular#1234"
+#define OTA_WINDOW_MS 7000   // OTA 監聽窗口時長（毫秒）
+#define WIFI_TIMEOUT_MS 1000 // WiFi 連線超時（毫秒）
+
+// OTA 狀態旗標（偵測到 OTA 開始時設為 true，延長窗口直到完成）
+volatile bool otaInProgress = false;
+
 // ===== 編碼器物件 =====
 // 讀取左右馬達的旋轉計數，用於距離反饋控制
 ESP32Encoder leftEncoder;  // 左馬達編碼器
@@ -86,6 +96,7 @@ int p_left_dis = 0;
 #define IR_RR_PIN 35 // 最右側紅外線（GPIO35）
 
 // 馬達控制腳位：每個馬達有正轉和反轉兩個腳位
+//! 危險：正反轉不可同時輸出，會短路損壞駅動板
 #define MOTOR_L_FWD 27 // 左馬達正轉（GPIO27）
 #define MOTOR_L_BWD 13 // 左馬達反轉（GPIO13）
 #define MOTOR_R_FWD 2  // 右馬達正轉（GPIO2）
@@ -95,7 +106,8 @@ int p_left_dis = 0;
 // ESP32 LEDC 通道與 Timer 對應關係（固定）：
 //   Timer 0: CH 0,1,8,9   | Timer 1: CH 2,3,10,11
 //   Timer 2: CH 4,5,12,13 | Timer 3: CH 6,7,14,15
-
+//! 重要：ESP32Servo 佔用 Timer 0 (arm, claw) 和 Timer 1 (camera)
+//!       馬達必須使用 Timer 2 或 Timer 3 的通道，避免頻率衝突（50Hz vs 75kHz）
 #define CH_L_FWD 4 // 左馬達正轉通道（Timer 2, Channel 4）
 #define CH_L_BWD 5 // 左馬達反轉通道（Timer 2, Channel 5）
 #define CH_R_FWD 6 // 右馬達正轉通道（Timer 2, Channel 6）
@@ -139,6 +151,7 @@ void oled_show_ir_status(); // 在 OLED 顯示紅外線狀態和編碼器計數
 
 // --- HuskyLens AI 視覺模組函式 ---
 void huskylens_init(); // 初始化 HuskyLens（I2C 通訊，與 OLED 共用）
+void test_huskylens(); // 測試 HuskyLens 顏色辨識（Serial 輸出 ID 1/2/3 的 X 座標）
 
 // --- 馬達控制相關函式 ---
 // 低層函式：直接控制左右馬達 PWM 值
@@ -146,6 +159,7 @@ void motor(int L, int R); // 馬達控制 (L:左輪速度 -255~255, R:右輪速�
 
 // 高層動作函式：基於 motor() 實現的複合動作
 void forward();       // 直線前進 (左輪55，右輪55)
+void backward();      // 直線後退 (左輪-25，右輪-25)
 void s_Left();        // 差速左轉 (左輪25，右輪45)
 void s_Right();       // 差速右轉 (左輪45，右輪25)
 void m_Left();        // 左轉 (左輪停止，右輪35)
@@ -155,7 +169,6 @@ void b_Right();       // 急右轉 (左輪55，右輪-55 - 右輪反轉)
 void trail_b_Left();  // 急左轉 (左輪-35，右輪35 - 左輪反轉)
 void trail_b_Right(); // 急右轉 (左輪35，右輪-35 - 右輪反轉)
 void stop();          // 停止（兩輪速度都為 0）
-void turn_turn();     // 迴轉
 
 // 距離控制函式：根據編碼器反饋控制精確距離
 void p_left(int distance);  // 設定距離左轉
@@ -176,10 +189,16 @@ void prepare_pickup(); // 打開爪子並且降下手臂，準備撿取物體
 // --- 攝像頭伺服控制函式 ---
 void camera_front(); // 攝像頭轉向正前方（90°）
 void camera_left();  // 攝像頭轉向左側（170°）
+void camera_right(); // 攝像頭轉向右側（0°）
+void test_camera();  // 測試攝像頭伺服動作
 
 // --- 測試函式 =====
 // 功能：逐一測試各硬體元件是否正常運作，結果透過 Serial 或 OLED 輸出
-void test_encoder(); // 編碼器測試（輸出左右馬達計數值）
+void test_motor();     // 馬達測試（順序執行：前進、後退、左轉、右轉、停止）
+void test_IR();        // 紅外線感測器測試（輸出 5 路感測值）
+void test_encoder();   // 編碼器測試（輸出左右馬達計數值）
+void test_max_speed(); // 極限速度測試：PWM=255 測量左右輪最大 c/100ms
+void test_speed();     // 即時速度測試：每 100ms 印出左右輪速度，用於觀察
 
 // --- 速度閉環控制函式 ---
 // 功能：根據目標速度動態調整 PWM，不受電池電量影響
@@ -188,9 +207,13 @@ void p_fw_v2(int distance);
 void p_bw_v2(int distance); // 新版前進：速度閉環 + 左右同步修正
 
 // --- 循跡功能 ---
-void trail(); // 循跡邏輯（根據 IR 陣列自動調整方向以跟隨黑線）
+void trail();       // 循跡邏輯（根據 IR 陣列自動調整方向以跟隨黑線）
+void trail_v2();    // 循跡邏輯 v2（使用速度閉環控制，更平滑穩定）
+void trail_start(); // 開始循跡前的初始化（重置 PWM）
+void trail_stop();  // 結束循跡後的清理（清零 PWM）
 
 // --- OTA 無線燒入 ---
+void ota_setup(); // OTA 開機窗口監聽（reset 後 5 秒內可接收 OTA）
 
 // ===== 自訂函式實作區 =====
 // 本區塊包含所有硬體控制和功能邏輯的實現
@@ -264,6 +287,32 @@ void huskylens_init()
   Serial.println("HuskyLens 初始化成功！");
 }
 
+//* HuskyLens 顏色辨識測試
+// 輸出 ID 1, 2, 3 的 X 中心座標至 Serial
+// 用法：在 setup() 中使用 while(true) { test_huskylens(); } 進行測試
+void test_huskylens()
+{
+  // 向 HuskyLens 請求辨識資料
+  huskylens.request();
+
+  // 檢查是否有偵測到方塊
+  if (huskylens.countBlocks() > 0)
+  {
+    // 輸出 ID 1, 2, 3 的 X 中心座標
+    //? xCenter 範圍 0~320，螢幕中心約 160
+    Serial.print("顏色1 X: ");
+    Serial.print(huskylens.getBlock(1, 0).xCenter);
+    Serial.print(", 顏色2 X: ");
+    Serial.print(huskylens.getBlock(2, 0).xCenter);
+    Serial.print(", 顏色3 X: ");
+    Serial.println(huskylens.getBlock(3, 0).xCenter);
+  }
+  else
+  {
+    Serial.println("未偵測到任何顏色方塊");
+  }
+}
+
 void oled_show_ir_status()
 {
   // 檢查 OLED 是否初始化成功
@@ -331,7 +380,7 @@ void motor(int L, int R)
   //* 核心馬達控制函式
   // 輸入：L = 左輪速度 -255~255，R = 右輪速度 -255~255
   // 正值 = 前進、負值 = 後退、0 = 停止
-  L = L * 1.55;
+
   // 限制左輪速度在 -255~255 範圍內
   if (L > 255)
     L = 255;
@@ -345,27 +394,28 @@ void motor(int L, int R)
     R = -255;
 
   // ===== 左輪控制 =====
+  //! 重要：正轉和反轉不能同時輸出，會短路損壞駅動板
   if (L > 0) // 正轉（前進）
   {
-    ledcWrite(CH_L_FWD, 0);
-    ledcWrite(CH_L_BWD, L); // 反轉通道必須為 0
+    ledcWrite(CH_L_FWD, L);
+    ledcWrite(CH_L_BWD, 0); // 反轉通道必須為 0
   }
   else // 反轉（後退）
   {
-    ledcWrite(CH_L_FWD, -L); // 正轉通道必須為 0
-    ledcWrite(CH_L_BWD, 0);
+    ledcWrite(CH_L_FWD, 0); // 正轉通道必須為 0
+    ledcWrite(CH_L_BWD, -L);
   }
 
   // ===== 右輪控制 =====
   if (R > 0) // 正轉（前進）
   {
-    ledcWrite(CH_R_FWD, 0);
-    ledcWrite(CH_R_BWD, R);
+    ledcWrite(CH_R_FWD, R);
+    ledcWrite(CH_R_BWD, 0);
   }
   else // 反轉（後退）
   {
-    ledcWrite(CH_R_FWD, -R);
-    ledcWrite(CH_R_BWD, 0);
+    ledcWrite(CH_R_FWD, 0);
+    ledcWrite(CH_R_BWD, -R);
   }
 }
 
@@ -380,42 +430,50 @@ void forward()
   //  太快轉彎跟不上 → 減少數值：55→45→35
   //  偏左 → 增加左輪：motor(60, 55)
   //  偏右 → 增加右輪：motor(55, 60)
-  motor(75, 75);
+  motor(53, 55);
 }
+
+void backward()
+{
+  //* 簡易後退函式（固定 PWM，無速度閉環）
+  //? 調參指引：太慢增加數值 25→35、太快減少數值 25→15
+  motor(-25, -25); // 左右輪相同速度後退
+}
+
 void s_Left()
 {
   // 差速左轉：左輪25，右輪45（兩輪皆正轉，右輪較快）
-  motor(110, 125);
+  motor(25, 45);
 }
 
 void s_Right()
 {
   // 差速右轉：左輪45，右輪25（兩輪皆正轉，左輪較快）
-  motor(110, 117);
+  motor(45, 25);
 }
 
 void m_Left()
 {
   // 左轉：左輪停止，右輪35
-  motor(0, 200);
+  motor(0, 35);
 }
 
 void m_Right()
 {
   // 右轉：左輪35，右輪停止
-  motor(200, 0);
+  motor(35, 0);
 }
 
 void b_Left()
 {
   // 急左轉：左輪反轉，右輪正轉
-  motor(-120, 55);
+  motor(-55, 55);
 }
 
 void b_Right()
 {
   // 急右轉：左輪正轉，右輪反轉
-  motor(120, -55);
+  motor(55, -55);
 }
 
 void trail_b_Left()
@@ -522,8 +580,8 @@ void p_left(int degree)
 
     motor(L_speed, R_speed);
     delay(30);
-    // stop();
-    // delay(10);
+    stop();
+    delay(10);
     attempts++;
   }
 }
@@ -609,28 +667,10 @@ void p_right(int degree)
 
     motor(L_speed, R_speed);
     delay(30);
-    // stop();
-    // delay(10);
+    stop();
+    delay(10);
     attempts++;
   }
-}
-
-void turn_turn()
-{
-  p_left(130);
-  stop();
-  delay(20);
-  while (true)
-  {
-    trail_b_Left();
-    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
-    {
-      break;
-    }
-    delay(20);
-  }
-  stop();
-  delay(100);
 }
 
 // ============ 伺服馬達控制函式 ============
@@ -714,8 +754,218 @@ void camera_left()
   camera.write(CAMERA_LEFT);
 }
 
+void camera_right()
+{
+  //* 攝像頭轉向右側（0°）
+  camera.write(CAMERA_RIGHT);
+}
+
+void test_camera()
+{
+  //* 測試攝像頭伺服馬達動作
+  // 測試順序：前 → 左 → 前 → 右 → 前（每次回到中心便於觀察）
+  Serial.println("Camera Test: Front");
+  camera_front();
+  delay(1000);
+
+  Serial.println("Camera Test: Left");
+  camera_left();
+  delay(1000);
+
+  Serial.println("Camera Test: Front");
+  camera_front();
+  delay(1000);
+
+  Serial.println("Camera Test: Right");
+  camera_right();
+  delay(1000);
+
+  Serial.println("Camera Test: Front");
+  camera_front();
+  delay(500);
+}
+
 // ============ 測試函式 ============
 // 用於驗證硬體是否正常工作
+
+void test_motor()
+{
+  // 測試馬達動作序列
+  Serial.println("Motor Test: Forward");
+  forward();
+  delay(1000);
+  Serial.println("Motor Test: Backward");
+  backward();
+  delay(1000);
+  Serial.println("Motor Test: Left");
+  m_Left();
+  delay(1000);
+  Serial.println("Motor Test: Right");
+  m_Right();
+  delay(1000);
+  Serial.println("Motor Test: Stop");
+  stop();
+  delay(500);
+}
+
+void test_IR()
+{
+  // 輸出 5 路紅外線感測值
+  Serial.print("IR_LL: ");
+  Serial.print(IR_LL_read());
+  Serial.print(" IR_L: ");
+  Serial.print(IR_L_read());
+  Serial.print(" IR_M: ");
+  Serial.print(IR_M_read());
+  Serial.print(" IR_R: ");
+  Serial.print(IR_R_read());
+  Serial.print(" IR_RR: ");
+  Serial.println(IR_RR_read());
+  delay(100);
+}
+
+void test_max_speed()
+{
+  //* 極限速度測試（為什麼要測？）
+  //  1. 測量硬體極限：避免設定超過硬體能力的目標速度
+  //  2. 計算安全速度：通常用 70-80% 極限（保留餘裕避免失控）
+  //  3. 電池校準：滿電和低電時極限速度不同，需定期測量
+  // ===== 極限速度測試 =====
+  // 目的：測量 PWM=255 時左右輪的最大速度（c/100ms）
+  // 用途：作為設定目標速度的參考上限
+  // 注意：測量過程不輸出任何訊息，專心量測確保準確
+  //       結果會顯示在 OLED 上（適合斷線測試）
+
+  // 清除編碼器
+  leftEncoder.clearCount();
+  rightEncoder.clearCount();
+
+  // 全速前進
+  motor(255, 255);
+
+  // 等待 500ms 讓速度穩定
+  delay(500);
+
+  // 測量 10 次，每次 100ms（專心量測，不輸出）
+  long L_total = 0; // 左輪速度總和
+  long R_total = 0; // 右輪速度總和
+  const int SAMPLES = 10;
+
+  for (int i = 0; i < SAMPLES; i++)
+  {
+    // 記錄起始計數
+    long L_start = leftEncoder.getCount();
+    long R_start = rightEncoder.getCount();
+
+    // 等待 100ms
+    delay(100);
+
+    // 計算這 100ms 內的計數變化量（即速度 c/100ms）
+    long L_speed = leftEncoder.getCount() - L_start;
+    long R_speed = rightEncoder.getCount() - R_start;
+
+    // 累加（不印出，專心量測）
+    L_total += L_speed;
+    R_total += R_speed;
+  }
+
+  // 停止馬達
+  stop();
+
+  // 計算平均值
+  long L_avg = L_total / SAMPLES;
+  long R_avg = R_total / SAMPLES;
+
+  // === 儲存結果到全域變數 ===
+  maxSpeed_L = L_avg;
+  maxSpeed_R = R_avg;
+  maxSpeed_tested = true;
+
+  // === 顯示結果到 OLED ===
+  if (oled_ready)
+  {
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+
+    // 標題
+    display.setCursor(0, 0);
+    display.println("=== Max Speed ===");
+
+    // 左輪結果
+    display.print("L: ");
+    display.print(L_avg);
+    display.println(" c/100ms");
+
+    // 右輪結果
+    display.print("R: ");
+    display.print(R_avg);
+    display.println(" c/100ms");
+
+    // 分隔線
+    display.println("--- Suggest ---");
+
+    // 建議目標速度（80%）
+    display.print("80%: L");
+    display.print(L_avg * 80 / 100);
+    display.print(" R");
+    display.println(R_avg * 80 / 100);
+
+    // 換算成 c/20ms
+    display.print("c/20ms: L");
+    display.print(L_avg / 5);
+    display.print(" R");
+    display.print(R_avg / 5);
+
+    display.display();
+  }
+
+  // 同時也印到 Serial（如果有連線的話）
+  Serial.println("=== 測量結果 ===");
+  Serial.print("左輪: ");
+  Serial.print(L_avg);
+  Serial.print(" c/100ms | 右輪: ");
+  Serial.print(R_avg);
+  Serial.println(" c/100ms");
+  Serial.print("建議 c/20ms: 左 ");
+  Serial.print(L_avg / 5);
+  Serial.print(" / 右 ");
+  Serial.print(R_avg / 5);
+  Serial.println("");
+}
+
+void test_speed()
+{
+  // ===== 即時速度測試 =====
+  // 目的：每 100ms 印出左右輪的即時速度
+  // 用途：學生手轉輪子或讓車跑，觀察速度變化
+  // 注意：此函式會持續執行，需按 Reset 結束
+
+  Serial.println("=== 即時速度測試 ===");
+  Serial.println("每 100ms 印出速度，按 Reset 結束");
+  Serial.println("");
+
+  while (true)
+  {
+    // 記錄起始計數
+    long L_start = leftEncoder.getCount();
+    long R_start = rightEncoder.getCount();
+
+    // 等待 100ms
+    delay(100);
+
+    // 計算速度（c/100ms）
+    long L_speed = leftEncoder.getCount() - L_start;
+    long R_speed = rightEncoder.getCount() - R_start;
+
+    // 印出結果
+    Serial.print("左: ");
+    Serial.print(L_speed);
+    Serial.print(" c/100ms | 右: ");
+    Serial.print(R_speed);
+    Serial.println(" c/100ms");
+  }
+}
 
 // ============ 速度閉環控制函式 ============
 // 原理：不再設定固定 PWM，而是設定「目標速度」
@@ -977,6 +1227,83 @@ void p_bw_v2(int distance)
   R_pwm = 0;
 }
 
+// ============ OTA 無線燒入函式 ============
+// 開機後提供短暫窗口監聽 OTA 請求，時間過後自動進入主程式
+// 若偵測到 OTA 傳輸開始，會自動延長窗口直到傳輸完成
+
+void ota_setup()
+{
+  Serial.println("\n===== OTA 無線燒入模式 =====");
+  Serial.print("正在連接 WiFi: ");
+  Serial.println(WIFI_SSID);
+
+  // --- 連接 WiFi（設定超時）---
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  unsigned long wifiStart = millis();
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    if (millis() - wifiStart > WIFI_TIMEOUT_MS)
+    {
+      Serial.println("WiFi 連線超時，跳過 OTA 窗口");
+      WiFi.disconnect(true);
+      WiFi.mode(WIFI_OFF);
+      return; // 超時直接返回，進入主程式
+    }
+    delay(100);
+    Serial.print(".");
+  }
+
+  // --- WiFi 連線成功 ---
+  Serial.println();
+  Serial.print("WiFi 已連線！IP 位址: ");
+  Serial.println(WiFi.localIP());
+
+  // --- 設定 OTA 回呼函式 ---
+  ArduinoOTA.onStart([]()
+                     {
+    otaInProgress = true;
+    String type = (ArduinoOTA.getCommand() == U_FLASH) ? "程式" : "檔案系統";
+    Serial.println("OTA 開始更新: " + type); });
+
+  ArduinoOTA.onEnd([]()
+                   { Serial.println("\nOTA 更新完成！重新啟動..."); });
+
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total)
+                        { Serial.printf("OTA 進度: %u%%\r", (progress / (total / 100))); });
+
+  ArduinoOTA.onError([](ota_error_t error)
+                     {
+    Serial.printf("OTA 錯誤 [%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("驗證失敗");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("開始失敗");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("連線失敗");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("接收失敗");
+    else if (error == OTA_END_ERROR) Serial.println("結束失敗"); });
+
+  // --- 啟動 OTA 服務 ---
+  ArduinoOTA.begin();
+  Serial.print("OTA 監聽中... (");
+  Serial.print(OTA_WINDOW_MS / 1000);
+  Serial.println(" 秒窗口)");
+
+  // --- OTA 窗口迴圈 ---
+  // 持續監聽直到窗口時間結束，若偵測到 OTA 開始則延長直到完成
+  unsigned long otaStart = millis();
+  while ((millis() - otaStart < OTA_WINDOW_MS) || otaInProgress)
+  {
+    ArduinoOTA.handle();
+    delay(10);
+  }
+
+  // --- 關閉 WiFi，釋放資源 ---
+  Serial.println("OTA 窗口結束，關閉 WiFi...");
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  Serial.println("進入主程式執行\n");
+}
+
 // ============ 循跡功能 ============
 // 利用紅外線陣列自動跟隨黑線行進
 
@@ -1005,14 +1332,110 @@ void trail()
     if (IR_L_read() == 1 && IR_R_read() == 0) // 黑線在左邊
     {
       // trail_b_Left();
-      s_Left();
+      m_Left();
     }
     else if (IR_L_read() == 0 && IR_R_read() == 1) // 黑線在右邊
     {
       // trail_b_Right();
-      s_Right();
+      m_Right();
     }
   }
+}
+
+void trail_start()
+{
+  //* 開始循跡前的初始化
+  // 重置 PWM 累積值，避免殘留影響
+  L_pwm = 0;
+  R_pwm = 0;
+}
+
+void trail_stop()
+{
+  //* 結束循跡後的清理
+  // 停止馬達並清零 PWM
+  stop();
+  L_pwm = 0;
+  R_pwm = 0;
+}
+
+void trail_v2()
+{
+  //* 循跡邏輯 v2：使用速度閉環控制
+  // ===== 優化版循跡（速度閉環控制）=====
+  // 特點：
+  //   1. 平滑速度控制：不再用固定 PWM 跳動
+  //   2. 電池補償：不受電量影響，保持穩定速度
+  //   3. 精確轉向：根據偏離程度動態調整左右輪速差
+  //
+  // ===== 使用方式 =====
+  // trail_start();  // 開始前：重置 PWM
+  // while (true) {
+  //   trail_v2();   // 循跡邏輯
+  //   if (條件) break;
+  // }
+  // trail_stop();   // 結束後：清零 PWM
+  //
+  // ===== 調參指引 =====
+  //? BASE_SPEED：基礎循跡速度（c/20ms）
+  //  - 建議從 test_max_speed() 結果的 50% 開始
+  //  - 太快轉彎跟不上 → 調低（例：40 → 30）
+  //  - 太慢浪費時間 → 調高（例：40 → 50）
+  //
+  //? TURN_RATIO：轉向強度（0.0~1.0）
+  //  - 微調：0.3 = 外輪保持 70% 速度，內輪 30%
+  //  - 激進：0.8 = 外輪 20%，內輪反轉 80%
+  //  - 調太大容易過度轉向，調太小轉不過彎
+
+  // --- 參數設定 ---
+  const float BASE_SPEED = 10.0;     // 基礎循跡速度（c/20ms），建議極限的 50%
+  const float MILD_TURN_RATIO = 0.5; // 微調轉向強度（中線在黑線上時）
+  const float HARD_TURN_RATIO = 0.8; // 激進轉向強度（中線脫離黑線時）
+
+  // --- 讀取紅外線感測器 ---
+  int LL = IR_LL_read(); // 最左
+  int L = IR_L_read();   // 左
+  int M = IR_M_read();   // 中
+  int R = IR_R_read();   // 右
+  int RR = IR_RR_read(); // 最右
+
+  // --- 計算目標速度（根據感測器狀態）---
+  float L_target = BASE_SPEED; // 左輪目標速度
+  float R_target = BASE_SPEED; // 右輪目標速度
+
+  // === 情況 1：中線在黑線上（方向正確，微調）===
+  if (M == 1)
+  {
+    if (L == 1 && R == 0) // 向左偏 → 左輪減速
+    {
+      L_target = BASE_SPEED * (1 - MILD_TURN_RATIO); // 左輪減速
+      R_target = BASE_SPEED;                         // 右輪維持
+    }
+    else if (L == 0 && R == 1) // 向右偏 → 右輪減速
+    {
+      L_target = BASE_SPEED;                         // 左輪維持
+      R_target = BASE_SPEED * (1 - MILD_TURN_RATIO); // 右輪減速
+    }
+    // else：左右平衡，兩輪都是 BASE_SPEED（直線前進）
+  }
+  // === 情況 2：中線不在黑線上（方向錯誤，激進轉向）===
+  else
+  {
+    if (L == 1 || LL == 1) // 黑線在左邊 → 激進左轉
+    {
+      L_target = -BASE_SPEED * HARD_TURN_RATIO; // 左輪反轉
+      R_target = BASE_SPEED;                    // 右輪正轉
+    }
+    else if (R == 1 || RR == 1) // 黑線在右邊 → 激進右轉
+    {
+      L_target = BASE_SPEED;                    // 左輪正轉
+      R_target = -BASE_SPEED * HARD_TURN_RATIO; // 右輪反轉
+    }
+    // else：所有感測器都不在黑線上 → 保持原方向繼續搜尋
+  }
+
+  // --- 呼叫速度閉環控制 ---
+  speed_control(L_target, R_target);
 }
 
 // ===== 主程式 =====
@@ -1033,7 +1456,7 @@ void setup()
 
   // --- HuskyLens 初始化 ---
   // I2C 已在 oled_init() 中初始化，直接連線
-  // huskylens_init();
+  huskylens_init();
 
   // --- 伺服馬達定時器分配 ---
   // 重要！必須在伺服初始化前執行
@@ -1070,6 +1493,7 @@ void setup()
   pinMode(IR_RR_PIN, INPUT);
 
   // --- 馬達 PWM 初始化 (Timer 2 的通道 4-7) ---
+  //! 重要：使用 Timer 2 避免與 ESP32Servo (Timer 0, 1) 衝突
   // PWM 設定步驟：1.設定腳位為輸出  2.建立 PWM 通道  3.綁定腳位到通道
 
   // 左馬達正轉通道（Channel 4, Timer 2）
@@ -1093,38 +1517,124 @@ void setup()
   ledcAttachPin(MOTOR_R_BWD, CH_R_BWD);   // 綁定
 
   stop(); // 初始化時停止馬達
-          // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
+  // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
 
   //?=====================主程式開始=====================
+  //* 設定攝像頭初始視角：先往前看，再轉向左側
+  delay(1000);
+  camera_front();
+  delay(20);
+  camera_left();
+  delay(20);
+  int count = 0;
+
+  while (true)
+  {
+    speed_control(20, 20);
+    count++;
+    if (count >= 60)
+    {
+      stop();
+      delay(200);
+      break;
+    }
+  }
+
+  //*=====================直走，中間取貨開始=====================
+  prepare_pickup();
   int look = 0;
   while (true)
   {
-    if ((IR_RR_read() == 1) || (IR_LL_read() == 1))
+    if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
     {
       look++;
-      if (look == 1)
+      if (look == 2)
       {
         stop();
         break;
       }
+      if (look == 1)
+      {
+        camera_front();
+      }
+      p_fw_v2(250);
     }
     else
     {
       trail();
     }
   }
+  pickup_object();
+  delay(250);
+  p_left(50);
+  while (true)
+  {
+    trail_b_Left();
+    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
+    {
+      stop();
+      delay(50);
+      break;
+    }
+  }
+  //===============循跡==============
+  look = 0;
+  while (true)
+  {
+    if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
+    {
+      look++;
+      if (look == 2)
+      {
+        stop();
+        break;
+      }
+      p_fw_v2(250);
+    }
+    else
+    {
+      trail();
+    }
+  }
+  //=============循跡==================
+  p_fw_v2(450);
+  release_object();
   stop();
-  // 測試：啟動左轉，確認馬達和編碼器功能正常
+
+  p_left(20);
+  while (true)
+  {
+    trail_b_Left();
+    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
+    {
+      stop();
+      delay(50);
+      break;
+    }
+  }
+  p_left(30);
+  while (true)
+  {
+    trail_b_Left();
+    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
+    {
+      stop();
+      delay(50);
+      break;
+    }
+  }
+
   //?=====================主程式結束=====================
 
   //! 以下不需要更動
-  //* OLED：持續顯示紅外線狀v態和編碼器值
+  //* OLED：持續顯示紅外線狀態和編碼器值
   while (true)
   {
     oled_show_ir_status(); // 在 OLED 顯示紅外線狀態和編碼器值
     delay(500);            // 每 500ms 更新一次
   };
 }
+
 void loop()
 {
   // 主迴圈留空，所有功能在 setup() 中完成
