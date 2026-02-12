@@ -380,18 +380,18 @@ void forward()
   //  太快轉彎跟不上 → 減少數值：55→45→35
   //  偏左 → 增加左輪：motor(60, 55)
   //  偏右 → 增加右輪：motor(55, 60)
-  motor(75, 75);
+  motor(85, 85);
 }
 void s_Left()
 {
   // 差速左轉：左輪25，右輪45（兩輪皆正轉，右輪較快）
-  motor(40, 60);
+  motor(65, 70);
 }
 
 void s_Right()
 {
   // 差速右轉：左輪45，右輪25（兩輪皆正轉，左輪較快）
-  motor(60, 40);
+  motor(68, 60);
 }
 
 void m_Left()
@@ -1099,15 +1099,53 @@ void setup()
   int look = 0;
   while (true)
   {
-    if ((IR_RR_read() == 1) || (IR_RR_read() == 1))
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
     {
       look++;
-      forward();
-      delay(20);
       trail();
-      delay(30);
-      stop();
-      delay(200);
+      delay(100);
+      if (look == 4)
+      {
+        break;
+      }
+    }
+    else
+    {
+      trail();
+    }
+  }
+  b_Left();
+  delay(50);
+  while (true)
+  {
+    if (IR_L_read() == 1 || IR_M_read() == 1 || IR_R_read() == 1)
+    {
+      break;
+    }
+    else
+    {
+      b_Left();
+    }
+  }
+  while (true)
+  {
+    if (IR_L_read() == 1 || IR_M_read() == 1 || IR_R_read() == 1)
+    {
+      break;
+    }
+    else
+    {
+      b_Right();
+    }
+  }
+  look = 0;
+  while (true)
+  {
+    if (IR_L_read() == 1 && IR_R_read() == 1)
+    {
+      look++;
+      trail();
+      delay(50);
       if (look == 2)
       {
         break;
@@ -1118,22 +1156,8 @@ void setup()
       trail();
     }
   }
+  pickup_object();
   stop();
-  b_Left();
-  delay(45);
-  while (true)
-  {
-    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
-    {
-      break;
-    }
-    else
-    {
-      b_Left();
-    }
-  }
-
-  // 測試：啟動左轉，確認馬達和編碼器功能正常
   //?=====================主程式結束=====================
 
   //! 以下不需要更動

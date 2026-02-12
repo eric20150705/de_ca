@@ -713,12 +713,13 @@ void claw_close()
 
 void pickup_object()
 {
-  // 撿取物體的完整動作序列
-
+  // 撿取物體的完整動作
+  arm_down(); // 放下手臂
+  delay(100);
   claw_close(); // 夾爪子
   delay(100);
   arm_up(); // 抬起手臂
-  // delay(100);
+  delay(100);
 }
 
 void release_object()
@@ -1520,6 +1521,7 @@ void setup()
   // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
 
   //?=====================主程式開始=====================
+  prepare_pickup();
   int look = 0;
   while (true)
   {
@@ -1535,11 +1537,12 @@ void setup()
   forward();
   delay(100);
   b_Right();
-  delay(150);
+  delay(300);
   while (true)
   {
     if (IR_R_read() == 1 || IR_L_read() == 1 || IR_M_read() == 1)
     {
+      stop();
       break;
     }
     else
@@ -1547,66 +1550,22 @@ void setup()
       b_Right();
     }
   }
+  while (true)
+  {
+    if (IR_L_read() == 1 && IR_R_read() == 1)
+    {
+      stop();
+      break;
+    }
+    else
+    {
+      trail();
+    }
+  }
+  pickup_object();
   b_Left();
-  delay(100);
-  // while (true)
-  // {
-  //   if (IR_R_read() == 1 && IR_L_read() == 1)
-  //   {
-  //     stop();
-  //     break;
-  //   }
-  //   else
-  //   {
-  //     trail();
-  //   }
-  // }
-  // pickup_object();
-  // delay(500);
-  // b_Left();
-  // delay(100);
-  // while (true)
-  // {
-  //   if (IR_R_read() == 1 || IR_L_read() == 1 || IR_M_read() == 1)
-  //   {
-  //     break;
-  //   }
-  //   else
-  //   {
-  //     b_Left();
-  //   }
-  // }
-  // while (true)
-  // {
-  //   if (IR_R_read() == 1 && IR_L_read() == 1)
-  //   {
-  //     b_Left();
-  //     delay(100);
-  //     break;
-  //   }
-  //   else
-  //   {
-  //     trail();
-  //   }
-  // }
-  // while (true)
-  // {
-  //   if (IR_L_read() == 1 && IR_R_read() == 1)
-  //   {
-  //     look++;
-  //     if (look >= 3)
-  //     {
-  //       break;
-  //     }
-  //   }
-  //   else
-  //   {
-  //     trail();
-  //   }
-  // }
-  // release_object();
+  delay(300);
   stop();
-
   //?=====================主程式結束=====================
 
   //! 以下不需要更動

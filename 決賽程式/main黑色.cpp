@@ -714,7 +714,7 @@ void claw_close()
 void pickup_object()
 {
   // 撿取物體的完整動作序列
-
+  arm_down();   // 放下手臂
   claw_close(); // 夾爪子
   delay(100);
   arm_up(); // 抬起手臂
@@ -1520,109 +1520,67 @@ void setup()
   // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
 
   //?=====================主程式開始=====================
-  //* 設定攝像頭初始視角：先往前看，再轉向左側
-  delay(1000);
-  camera_front();
-  delay(20);
-  camera_left();
-  delay(20);
-  int count = 0;
-
-  while (true)
-  {
-    speed_control(20, 20);
-    count++;
-    if (count >= 60)
-    {
-      stop();
-      delay(200);
-      break;
-    }
-  }
-
-  //*=====================直走，中間取貨開始=====================
   prepare_pickup();
   int look = 0;
   while (true)
   {
-    if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
     {
-      look++;
-      if (look == 2)
-      {
-        stop();
-        break;
-      }
-      if (look == 1)
-      {
-        camera_front();
-      }
-      p_fw_v2(250);
+      break;
     }
     else
     {
       trail();
     }
   }
-  pickup_object();
-  delay(250);
-  p_left(50);
+  forward();
+  delay(100);
+  b_Right();
+  delay(300);
   while (true)
   {
-    trail_b_Left();
-    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
+    if (IR_R_read() == 1 || IR_L_read() == 1 || IR_M_read() == 1)
     {
-      stop();
-      delay(50);
       break;
     }
+    else
+    {
+      b_Right();
+    }
   }
-  //===============循跡==============
+  b_Left();
+  delay(100);
+  pickup_object();
+  b_Left();
+  delay(300);
+  while (true)
+  {
+    if (IR_R_read() == 1 || IR_L_read() == 1 || IR_M_read() == 1)
+    {
+      break;
+    }
+    else
+    {
+      b_Left();
+    }
+  }
   look = 0;
   while (true)
   {
-    if ((IR_LL_read() == 1) || (IR_RR_read() == 1))
+    if (IR_LL_read() == 1 && IR_RR_read() == 1)
     {
       look++;
-      if (look == 2)
+      if (look == 3)
       {
-        stop();
         break;
       }
-      p_fw_v2(250);
     }
     else
     {
       trail();
     }
   }
-  //=============循跡==================
-  p_fw_v2(450);
-  release_object();
   stop();
-
-  p_left(20);
-  while (true)
-  {
-    trail_b_Left();
-    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
-    {
-      stop();
-      delay(50);
-      break;
-    }
-  }
-  p_left(30);
-  while (true)
-  {
-    trail_b_Left();
-    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
-    {
-      stop();
-      delay(50);
-      break;
-    }
-  }
 
   //?=====================主程式結束=====================
 
