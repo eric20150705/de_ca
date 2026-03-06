@@ -145,17 +145,18 @@ void huskylens_init(); // 初始化 HuskyLens（I2C 通訊，與 OLED 共用）
 void motor(int L, int R); // 馬達控制 (L:左輪速度 -255~255, R:右輪速度 -255~255)
 
 // 高層動作函式：基於 motor() 實現的複合動作
-void forward();       // 直線前進 (左輪55，右輪55)
-void s_Left();        // 差速左轉 (左輪25，右輪45)
-void s_Right();       // 差速右轉 (左輪45，右輪25)
-void m_Left();        // 左轉 (左輪停止，右輪35)
-void m_Right();       // 右轉 (左輪35，右輪停止)
-void b_Left();        // 急左轉 (左輪-55，右輪55 - 左輪反轉)
-void b_Right();       // 急右轉 (左輪55，右輪-55 - 右輪反轉)
-void trail_b_Left();  // 急左轉 (左輪-35，右輪35 - 左輪反轉)
-void trail_b_Right(); // 急右轉 (左輪35，右輪-35 - 右輪反轉)
-void stop();          // 停止（兩輪速度都為 0）
-void turn_turn();     // 迴轉
+void forward();        // 直線前進 (左輪55，右輪55)
+void s_Left();         // 差速左轉 (左輪25，右輪45)
+void s_Right();        // 差速右轉 (左輪45，右輪25)
+void m_Left();         // 左轉 (左輪停止，右輪35)
+void m_Right();        // 右轉 (左輪35，右輪停止)
+void b_Left();         // 急左轉 (左輪-55，右輪55 - 左輪反轉)
+void b_Right();        // 急右轉 (左輪55，右輪-55 - 右輪反轉)
+void trail_b_Left();   // 急左轉 (左輪-35，右輪35 - 左輪反轉)
+void trail_b_Right();  // 急右轉 (左輪35，右輪-35 - 右輪反轉)
+void stop();           // 停止（兩輪速度都為 0）
+void turn_turn();      // 迴轉
+void trail_to_cross(); // 循跡到十字路口（所有紅外線感測器都偵測到黑線）
 
 // 距離控制函式：根據編碼器反饋控制精確距離
 void p_left(int distance);  // 設定距離左轉
@@ -1014,7 +1015,19 @@ void trail()
     }
   }
 }
-
+void trail_to_cross()
+{
+  // 循跡到十字路口（任一感測器讀到黑線即停止）
+  while (true)
+  {
+    trail(); // 執行循跡邏輯
+    if ((IR_L_read() == 1) && (IR_R_read() == 1) && (IR_M_read() == 1))
+    {
+      break; // 任一感測器讀到黑線，停止循跡
+    }
+    trail(); // 小延遲，避免過度頻繁讀取感測器
+  }
+}
 // ===== 主程式 =====
 // setup()：初始化所有硬體，在上傳後執行一次
 // loop()：主控制迴圈，在 setup() 完成後反覆執行
@@ -1096,68 +1109,21 @@ void setup()
           // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
 
   //?=====================主程式開始=====================
-  int look = 0;
-  while (true)
-  {
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
-    {
-      look++;
-      trail();
-      delay(100);
-      if (look == 4)
-      {
-        break;
-      }
-    }
-    else
-    {
-      trail();
-    }
-  }
-  b_Left();
-  delay(50);
-  while (true)
-  {
-    if (IR_L_read() == 1 || IR_M_read() == 1 || IR_R_read() == 1)
-    {
-      break;
-    }
-    else
-    {
-      b_Left();
-    }
-  }
-  while (true)
-  {
-    if (IR_L_read() == 1 || IR_M_read() == 1 || IR_R_read() == 1)
-    {
-      break;
-    }
-    else
-    {
-      b_Right();
-    }
-  }
-  look = 0;
-  while (true)
-  {
-    if (IR_L_read() == 1 && IR_R_read() == 1)
-    {
-      look++;
-      trail();
-      delay(50);
-      if (look == 2)
-      {
-        break;
-      }
-    }
-    else
-    {
-      trail();
-    }
-  }
-  pickup_object();
+  prepare_pickup();
+  p_fw_v2(7500);
   stop();
+  while (IR_L_read() == 0)
+  {
+    forward();
+  }
+  stop();
+
+  p_left(90);
+  trail_to_cross();
+  p_left(90);
+  trail_to_cross();
+  stop();
+
   //?=====================主程式結束=====================
 
   //! 以下不需要更動
