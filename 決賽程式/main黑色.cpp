@@ -713,12 +713,13 @@ void claw_close()
 
 void pickup_object()
 {
-  // 撿取物體的完整動作序列
-  arm_down();   // 放下手臂
+  // 撿取物體的完整動作
+  arm_down(); // 放下手臂
+  delay(100);
   claw_close(); // 夾爪子
   delay(100);
   arm_up(); // 抬起手臂
-  // delay(100);
+  delay(100);
 }
 
 void release_object()
@@ -1541,6 +1542,7 @@ void setup()
   {
     if (IR_R_read() == 1 || IR_L_read() == 1 || IR_M_read() == 1)
     {
+      stop();
       break;
     }
     else
@@ -1548,40 +1550,22 @@ void setup()
       b_Right();
     }
   }
-  b_Left();
-  delay(100);
-  pickup_object();
-  b_Left();
-  delay(300);
   while (true)
   {
-    if (IR_R_read() == 1 || IR_L_read() == 1 || IR_M_read() == 1)
+    if (IR_L_read() == 1 && IR_R_read() == 1)
     {
+      stop();
       break;
-    }
-    else
-    {
-      b_Left();
-    }
-  }
-  look = 0;
-  while (true)
-  {
-    if (IR_LL_read() == 1 && IR_RR_read() == 1)
-    {
-      look++;
-      if (look == 3)
-      {
-        break;
-      }
     }
     else
     {
       trail();
     }
   }
+  pickup_object();
+  b_Left();
+  delay(300);
   stop();
-
   //?=====================主程式結束=====================
 
   //! 以下不需要更動
