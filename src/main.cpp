@@ -157,6 +157,9 @@ void trail_b_Right();  // 急右轉 (左輪35，右輪-35 - 右輪反轉)
 void stop();           // 停止（兩輪速度都為 0）
 void turn_turn();      // 迴轉
 void trail_to_cross(); // 循跡到十字路口（所有紅外線感測器都偵測到黑線）
+void turn_to_cross();  // 迴轉到十字路口（所有紅外線感測器都偵測到黑線）
+void turn_to_grab();
+void ninety_leftdegree_turn(); // 90 度轉彎（實驗性，根據編碼器計數調整）
 
 // 距離控制函式：根據編碼器反饋控制精確距離
 void p_left(int distance);  // 設定距離左轉
@@ -386,13 +389,13 @@ void forward()
 void s_Left()
 {
   // 差速左轉：左輪25，右輪45（兩輪皆正轉，右輪較快）
-  motor(65, 70);
+  motor(32, 35);
 }
 
 void s_Right()
 {
   // 差速右轉：左輪45，右輪25（兩輪皆正轉，左輪較快）
-  motor(68, 60);
+  motor(34, 30);
 }
 
 void m_Left()
@@ -410,7 +413,7 @@ void m_Right()
 void b_Left()
 {
   // 急左轉：左輪反轉，右輪正轉
-  motor(-55, 55);
+  motor(-20, 20);
 }
 
 void b_Right()
@@ -422,12 +425,12 @@ void b_Right()
 void trail_b_Left()
 {
   // 急左轉 (左輪-35，右輪35 - 左輪反轉)
-  motor(-20, 20);
+  motor(-5, 5);
 }
 void trail_b_Right()
 {
   // 急右轉 (左輪35，右輪-35 - 右輪反轉)
-  motor(15, -15);
+  motor(5, -5);
 }
 
 void stop()
@@ -677,7 +680,7 @@ void pickup_object()
   // 撿取物體的完整動作序列
 
   claw_close(); // 夾爪子
-  delay(100);
+  delay(500);
   arm_up(); // 抬起手臂
   // delay(100);
 }
@@ -1023,11 +1026,67 @@ void trail_to_cross()
     trail(); // 執行循跡邏輯
     if ((IR_L_read() == 1) && (IR_R_read() == 1) && (IR_M_read() == 1))
     {
+      p_fw_v2(150); // 繼續往前走一小段，確保完全進入十字路口
+      break;        // 任一感測器讀到黑線，停止循跡
+    }
+    trail(); // 小延遲，避免過度頻繁讀取感測器
+  }
+  ninety_leftdegree_turn();
+}
+void turn_to_cross()
+{
+  // 循跡到十字路口（任一感測器讀到黑線即停止）
+  while (true)
+  {
+    trail(); // 執行循跡邏輯
+    if ((IR_L_read() == 1) && (IR_R_read() == 1) && (IR_M_read() == 1))
+    {
+      // 繼續往前走一小段，確保完全進入十字路口
       break; // 任一感測器讀到黑線，停止循跡
     }
     trail(); // 小延遲，避免過度頻繁讀取感測器
   }
 }
+void turn_to_grab()
+{
+  turn_to_cross();
+  stop();
+  delay(300);
+  pickup_object();
+  delay(300);
+  p_left(140);
+  while (true)
+  {
+    if (IR_R_read() == 1)
+    {
+      break;
+    }
+    else
+    {
+      b_Left();
+    }
+    stop();
+    delay(300);
+    turn_to_cross();
+  }
+}
+
+void ninety_leftdegree_turn()
+{
+  p_left(50);
+  while (true)
+  {
+    if (IR_L_read() == 1)
+    {
+      break;
+    }
+    else
+    {
+      b_Left();
+    }
+  }
+}
+
 // ===== 主程式 =====
 // setup()：初始化所有硬體，在上傳後執行一次
 // loop()：主控制迴圈，在 setup() 完成後反覆執行
@@ -1116,12 +1175,18 @@ void setup()
   {
     forward();
   }
+  stop();                                                 
+
+  trail_to_cross();
+  stop();
+  delay(100);
+
+  trail_to_cross();
   stop();
 
-  p_left(90);
-  trail_to_cross();
-  p_left(90);
-  trail_to_cross();
+  //!  夾中間的物體
+  delay(100);
+  turn_to_grab();
   stop();
 
   //?=====================主程式結束=====================
