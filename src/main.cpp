@@ -173,6 +173,9 @@ void stop();          // 停止（兩輪速度都為 0）
 // 距離控制函式：根據編碼器反饋控制精確距離
 void p_left(int distance);  // 設定距離左轉
 void p_right(int distance); // 設定距離右轉
+void orange_round();
+void red_round();
+void yellow_round();
 
 // --- 伺服馬達控制函式 ---
 // 功能：控制手臂和爪子的角度，單位為度數（0~180°）
@@ -672,6 +675,27 @@ void p_right(int degree)
     attempts++;
   }
 }
+void orange_round()
+{
+  for (int i = 0; i < 8000; i++)
+  {
+    trail();
+  }
+}
+void red_round()
+{
+  for (int i = 0; i < 3000; i++)
+  {
+    trail();
+  }
+}
+void yellow_round()
+{
+  for (int i = 0; i < 12000; i++)
+  {
+    trail();
+  }
+}
 
 // ============ 伺服馬達控制函式 ============
 // SG90 伺服馬達原理：PWM 脈寬 1ms~2ms，對應角度 0~180°
@@ -717,7 +741,7 @@ void pickup_object()
   arm_down(); // 放下手臂
   delay(100);
   claw_close(); // 夾爪子
-  delay(100);
+  delay(500);
   arm_up(); // 抬起手臂
   delay(100);
 }
@@ -1563,11 +1587,103 @@ void setup()
     }
   }
   pickup_object();
-  b_Left();
-  delay(300);
+  p_left(100);
+  while (true)
+  {
+    b_Left();
+    if ((IR_L_read() == 1) || (IR_R_read() == 1) || (IR_M_read() == 1))
+    {
+      break;
+    }
+  }
   stop();
-  //?=====================主程式結束=====================
+  delay(500);
 
+  int count = 0;
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      p_fw_v2(200);
+      count++;
+    }
+
+    trail();
+    if (count == 3)
+    {
+      break;
+    }
+  }
+  stop();
+  yellow_round();
+  stop();
+  p_bw_v2(100);
+  p_right(73);
+  p_fw_v2(100);
+  claw_open();
+  stop();
+  while (true)
+  {
+    if (IR_L_read() == 1)
+    {
+      stop();
+      break;
+    }
+    b_Left();
+  }
+  while (true)
+  {
+    trail();
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      break;
+    }
+  }
+  stop();
+  p_fw_v2(300);
+  p_left(78);
+  count = 0;
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      p_fw_v2(200);
+      count++;
+    }
+
+    trail();
+    if (count == 2)
+    {
+      break;
+    }
+  }
+  p_fw_v2(200);
+  prepare_pickup();
+  p_right(85);
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      stop();
+      break;
+    }
+    trail();
+  }
+  pickup_object();
+  p_right(175);
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      stop();
+      break;
+    }
+    trail();
+  }
+  p_fw_v2(200);
+  p_left(85);
+
+  //?=====================主程式結束=====================
   //! 以下不需要更動
   //* OLED：持續顯示紅外線狀態和編碼器值
   while (true)
