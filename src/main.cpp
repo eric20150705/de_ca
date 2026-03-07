@@ -157,7 +157,7 @@ void trail_b_Right();  // 急右轉 (左輪35，右輪-35 - 右輪反轉)
 void stop();           // 停止（兩輪速度都為 0）
 void turn_turn();      // 迴轉
 void trail_to_cross(); // 循跡到十字路口（所有紅外線感測器都偵測到黑線）
-void turn_to_cross();  // 迴轉到十字路口（所有紅外線感測器都偵測到黑線）
+void turn_to_right();  // 轉向十字路口（根據紅外線感測器狀態調整方向，直到所有感測器都偵測到黑線）
 void turn_to_grab();
 void ninety_leftdegree_turn(); // 90 度轉彎（實驗性，根據編碼器計數調整）
 
@@ -364,11 +364,11 @@ void motor(int L, int R)
   if (R > 0) // 正轉（前進）
   {
     ledcWrite(CH_R_FWD, 0);
-    ledcWrite(CH_R_BWD, R);
+    ledcWrite(CH_R_BWD, R + 4);
   }
   else // 反轉（後退）
   {
-    ledcWrite(CH_R_FWD, -R);
+    ledcWrite(CH_R_FWD, -R + 4);
     ledcWrite(CH_R_BWD, 0);
   }
 }
@@ -384,30 +384,30 @@ void forward()
   //  太快轉彎跟不上 → 減少數值：55→45→35
   //  偏左 → 增加左輪：motor(60, 55)
   //  偏右 → 增加右輪：motor(55, 60)
-  motor(100, 100);
+  motor(50, 50);
 }
 void s_Left()
 {
   // 差速左轉：左輪25，右輪45（兩輪皆正轉，右輪較快）
-  motor(60, 63);
+  motor(45, 50);
 }
 
 void s_Right()
 {
   // 差速右轉：左輪45，右輪25（兩輪皆正轉，左輪較快）
-  motor(63, 60);
+  motor(50, 45);
 }
 
 void m_Left()
 {
   // 左轉：左輪停止，右輪35
-  motor(0, 23);
+  motor(20, 50);
 }
 
 void m_Right()
 {
   // 右轉：左輪35，右輪停止
-  motor(23, 0);
+  motor(50, 20);
 }
 
 void b_Left()
@@ -425,12 +425,12 @@ void b_Right()
 void trail_b_Left()
 {
   // 急左轉 (左輪-35，右輪35 - 左輪反轉)
-  motor(-5, 5);
+  motor(-120, 120);
 }
 void trail_b_Right()
 {
   // 急右轉 (左輪35，右輪-35 - 右輪反轉)
-  motor(5, -5);
+  motor(120, -120);
 }
 
 void stop()
@@ -682,7 +682,7 @@ void pickup_object()
   claw_close(); // 夾爪子
   delay(500);
   arm_up(); // 抬起手臂
-  // delay(100);
+  delay(100);
 }
 
 void release_object()
@@ -1023,70 +1023,75 @@ void trail_to_cross()
   // 循跡到十字路口（任一感測器讀到黑線即停止）
   while (true)
   {
-    trail(); // 執行循跡邏輯
+
     if ((IR_L_read() == 1) && (IR_R_read() == 1) && (IR_M_read() == 1))
     {
-      p_fw_v2(150); // 繼續往前走一小段，確保完全進入十字路口
-      break;        // 任一感測器讀到黑線，停止循跡
-    }
-    trail(); // 小延遲，避免過度頻繁讀取感測器
-  }
-  ninety_leftdegree_turn();
-}
-void turn_to_cross()
-{
-  // 循跡到十字路口（任一感測器讀到黑線即停止）
-  while (true)
-  {
-    trail(); // 執行循跡邏輯
-    if ((IR_L_read() == 1) && (IR_R_read() == 1) && (IR_M_read() == 1))
-    {
-      // 繼續往前走一小段，確保完全進入十字路口
+
       break; // 任一感測器讀到黑線，停止循跡
     }
-    trail(); // 小延遲，避免過度頻繁讀取感測器
+    else
+    {
+
+      trail();
+    }
   }
 }
+
 void turn_to_grab()
 {
-  turn_to_cross();
+  trail_to_cross();
   stop();
   delay(300);
   pickup_object();
-  delay(300);
-  p_left(140);
+  //! 開始迴轉
+  b_Left();
+  delay(250);
   while (true)
   {
+    if (IR_LL_read() == 1)
+    {
+      break;
+    }
+    else
+    {
+      motor(-20, 20); // 迴轉中，保持慢速
+    }
+  }
+  stop();
+  delay(300);
+  //! 迴轉完畢
+  trail_to_cross();
+}
+
+void ninety_leftdegree_turn()
+{
+  b_Left();
+  delay(250);
+  while (true)
+  {
+    if (IR_LL_read() == 1)
+    {
+      break;
+    }
+    else
+    {
+      b_Left();
+    }
+  }
+}
+void turn_to_right()
+{
+  while (true)
+
     if (IR_R_read() == 1)
     {
       break;
     }
     else
     {
-      b_Left();
+      m_Right();
     }
-    stop();
-    delay(300);
-    turn_to_cross();
-  }
 }
-
-void ninety_leftdegree_turn()
-{
-  p_left(50);
-  while (true)
-  {
-    if (IR_L_read() == 1)
-    {
-      break;
-    }
-    else
-    {
-      b_Left();
-    }
-  }
-}
-
 // ===== 主程式 =====
 // setup()：初始化所有硬體，在上傳後執行一次
 // loop()：主控制迴圈，在 setup() 完成後反覆執行
@@ -1168,30 +1173,27 @@ void setup()
           // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
 
   //?=====================主程式開始=====================
-  // prepare_pickup();
-  // p_fw_v2(7500);
-  // stop();
-  // while (IR_L_read() == 0)
-  // {
-  //   forward();
-  // }
-  // stop();
+  prepare_pickup();
 
-  // trail_to_cross();
-  // stop();
-  // delay(100);
-
-  // trail_to_cross();
-  // stop();
-
-  // //!  夾中間的物體
-  // delay(100);
-  // turn_to_grab();
-  // stop();
-  while (true)
+  p_fw_v2(7600);
+  stop();
+  while (IR_L_read() == 0)
   {
-    trail();
+    forward();
   }
+  stop();
+  delay(300);
+  ninety_leftdegree_turn();
+  trail_to_cross();
+  p_fw_v2(400);
+  ninety_leftdegree_turn();
+  trail_to_cross();
+  stop();
+  delay(100);
+  // //!  夾中間的物體
+  turn_to_grab();
+  stop();
+
   //?=====================主程式結束=====================
 
   //! 以下不需要更動
