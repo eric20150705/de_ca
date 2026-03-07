@@ -689,13 +689,20 @@ void red_round()
   {
     trail();
   }
+  p_right(70);
+  delay(500);
+  stop();
 }
 void yellow_round()
 {
-  for (int i = 0; i < 11000; i++)
+  p_right(67);
+  for (int i = 0; i < 4000; i++)
   {
     trail();
   }
+  p_left(70);
+  delay(500);
+  stop();
 }
 
 // ============ 伺服馬達控制函式 ============
@@ -768,6 +775,7 @@ void prepare_pickup()
 void arm_down_little()
 {
   arm.write(70);
+  delay(100);
 }
 
 // ============ 攝像頭伺服控制函式 ============
@@ -1610,7 +1618,7 @@ void setup()
   {
     if ((IR_R_read() == 1) && (IR_L_read() == 1))
     {
-      p_fw_v2(200);
+      p_fw_v2(150);
       count++;
     }
 
@@ -1623,9 +1631,7 @@ void setup()
   stop();
   yellow_round();
   stop();
-  p_bw_v2(100);
-  p_right(73);
-  p_fw_v2(70);
+  arm_down_little();
   claw_open();
   stop();
   while (true)
@@ -1665,7 +1671,7 @@ void setup()
   }
   p_fw_v2(200);
   prepare_pickup();
-  p_right(85);
+  p_right(87);
   while (true)
   {
     if ((IR_R_read() == 1) && (IR_L_read() == 1))
@@ -1688,6 +1694,26 @@ void setup()
   }
   p_fw_v2(200);
   p_left(85);
+  count = 0;
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      p_fw_v2(200);
+      count++;
+    }
+
+    trail();
+    if (count == 2)
+    {
+      break;
+    }
+  }
+  red_round();
+  stop();
+  arm_down_little();
+  claw_open();
+  stop();
 
   //?=====================主程式結束=====================
   //! 以下不需要更動
