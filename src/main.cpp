@@ -71,7 +71,7 @@ int p_left_dis = 0;
 // ===== 伺服馬達角度設定 =====
 // SG90 伺服馬達角度範圍 0~180°，根據機械結構調整以下角度
 #define ARM_UP 90       // 手臂升起角度（0° = 最低，180° = 最高）
-#define ARM_DOWN 20     // 手臂下降角度
+#define ARM_DOWN 0      // 手臂下降角度
 #define CLAW_OPEN 80    // 爪子開啟角度（夾不住物體）
 #define CLAW_CLOSE 0    // 爪子關閉角度（夾住物體）
 #define CAMERA_FRONT 90 // 攝像頭往前看（中心位置）
@@ -682,6 +682,9 @@ void orange_round()
   {
     trail();
   }
+  p_right(70);
+  delay(500);
+  stop();
 }
 void red_round()
 {
@@ -695,7 +698,15 @@ void red_round()
 }
 void yellow_round()
 {
-  p_right(67);
+  p_right(45);
+  while (true)
+  {
+    if (IR_M_read() == 1)
+    {
+      break;
+    }
+    b_Right();
+  }
   for (int i = 0; i < 4000; i++)
   {
     trail();
@@ -1572,13 +1583,11 @@ void setup()
       trail();
     }
   }
-  forward();
-  delay(100);
-  b_Right();
-  delay(300);
+  p_fw_v2(200);
+  p_right(45);
   while (true)
   {
-    if (IR_R_read() == 1 || IR_L_read() == 1 || IR_M_read() == 1)
+    if (IR_M_read() == 1)
     {
       stop();
       break;
@@ -1605,7 +1614,7 @@ void setup()
   while (true)
   {
     b_Left();
-    if ((IR_L_read() == 1) || (IR_R_read() == 1) || (IR_M_read() == 1))
+    if ((IR_L_read() == 1))
     {
       break;
     }
@@ -1623,17 +1632,58 @@ void setup()
     }
 
     trail();
-    if (count == 3)
+    if (count == 1)
+    {
+      break;
+    }
+  }
+  count = 0;
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      count++;
+    }
+
+    trail();
+    if (count == 1)
+    {
+      break;
+    }
+  }
+  p_fw_v2(150);
+  while (true)
+  {
+    if ((IR_L_read()) == 1)
+    {
+      stop();
+      break;
+    }
+    b_Left();
+  }
+  count = 0;
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      p_fw_v2(150);
+      count++;
+    }
+
+    trail();
+    if (count == 1)
     {
       break;
     }
   }
   stop();
+  p_fw_v2(200);
   yellow_round();
   stop();
   arm_down_little();
   claw_open();
   stop();
+  delay(500);
   while (true)
   {
     if (IR_L_read() == 1)
@@ -1653,7 +1703,17 @@ void setup()
   }
   stop();
   p_fw_v2(300);
-  p_left(78);
+  p_left(60);
+  while (true)
+  {
+    b_Left();
+    if (IR_M_read() == 1)
+    {
+      stop();
+      break;
+    }
+  }
+
   count = 0;
   while (true)
   {
@@ -1671,7 +1731,17 @@ void setup()
   }
   p_fw_v2(200);
   prepare_pickup();
-  p_right(87);
+  p_right(45);
+  while (true)
+  {
+    if (IR_M_read() == 1)
+    {
+      stop();
+      p_right(2);
+      break;
+    }
+    b_Right();
+  }
   while (true)
   {
     if ((IR_R_read() == 1) && (IR_L_read() == 1))
@@ -1683,6 +1753,7 @@ void setup()
   }
   pickup_object();
   p_right(175);
+  p_bw_v2(200);
   while (true)
   {
     if ((IR_R_read() == 1) && (IR_L_read() == 1))
@@ -1693,18 +1764,49 @@ void setup()
     trail();
   }
   p_fw_v2(200);
-  p_left(85);
+  p_left(45);
+  while (true)
+  {
+    if (IR_M_read() == 1)
+    {
+      stop();
+      break;
+    }
+    b_Left();
+  }
   count = 0;
   while (true)
   {
     if ((IR_R_read() == 1) && (IR_L_read() == 1))
     {
-      p_fw_v2(200);
+      p_fw_v2(100);
       count++;
+      while (true)
+      {
+        if (IR_M_read() == 1)
+        {
+          stop();
+          break;
+        }
+        b_Left();
+      }
     }
 
     trail();
-    if (count == 2)
+    if (count == 1)
+    {
+      break;
+    }
+  }
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      p_fw_v2(150);
+      count++;
+    }
+    trail();
+    if (count == 1)
     {
       break;
     }
@@ -1714,7 +1816,73 @@ void setup()
   arm_down_little();
   claw_open();
   stop();
-
+  p_right(60);
+  while (true)
+  {
+    b_Right();
+    if (IR_M_read() == 1)
+    {
+      stop();
+      break;
+    }
+  }
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      stop();
+      break;
+    }
+    trail();
+  }
+  p_fw_v2(300);
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      stop();
+      break;
+    }
+    trail();
+  }
+  p_fw_v2(200);
+  p_left(90);
+  prepare_pickup();
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      stop();
+      break;
+    }
+    trail();
+  }
+  pickup_object();
+  p_right(180);
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      stop();
+      break;
+    }
+    trail();
+  }
+  p_fw_v2(200);
+  p_right(90);
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      stop();
+      break;
+    }
+    trail();
+  }
+  p_fw_v2(300);
+  orange_round();
+  arm_down_little();
+  claw_open();
   //?=====================主程式結束=====================
   //! 以下不需要更動
   //* OLED：持續顯示紅外線狀態和編碼器值
