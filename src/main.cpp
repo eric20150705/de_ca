@@ -71,7 +71,7 @@ int p_left_dis = 0;
 // ===== 伺服馬達角度設定 =====
 // SG90 伺服馬達角度範圍 0~180°，根據機械結構調整以下角度
 #define ARM_UP 90       // 手臂升起角度（0° = 最低，180° = 最高）
-#define ARM_DOWN 0      // 手臂下降角度
+#define ARM_DOWN 20     // 手臂下降角度
 #define CLAW_OPEN 80    // 爪子開啟角度（夾不住物體）
 #define CLAW_CLOSE 0    // 爪子關閉角度（夾住物體）
 #define CAMERA_FRONT 90 // 攝像頭往前看（中心位置）
@@ -183,7 +183,8 @@ void arm_up();        // 手臂升起（寫入 ARM_UP 角度）
 void arm_down();      // 手臂下降（寫入 ARM_DOWN 角度）
 void arm_down_slow(); // 手臂慢慢下降
 void claw_open();     // 爪子開啟（寫入 CLAW_OPEN 角度）
-void claw_close();    // 爪子關閉（寫入 CLAW_CLOSE 角度）
+void claw_close();
+void arm_down_little(); // 爪子關閉（寫入 CLAW_CLOSE 角度）
 
 // 複合伺服動作
 void pickup_object();  // 撿取物體動作序列（張爪 → 下降 → 夾爪 → 上升）
@@ -691,7 +692,7 @@ void red_round()
 }
 void yellow_round()
 {
-  for (int i = 0; i < 12000; i++)
+  for (int i = 0; i < 11000; i++)
   {
     trail();
   }
@@ -741,7 +742,7 @@ void pickup_object()
   arm_down(); // 放下手臂
   delay(100);
   claw_close(); // 夾爪子
-  delay(500);
+  delay(1000);
   arm_up(); // 抬起手臂
   delay(100);
 }
@@ -762,6 +763,11 @@ void prepare_pickup()
   // delay(300);
   arm_down(); // 放下手臂
   // delay(300);
+}
+
+void arm_down_little()
+{
+  arm.write(70);
 }
 
 // ============ 攝像頭伺服控制函式 ============
@@ -1619,7 +1625,7 @@ void setup()
   stop();
   p_bw_v2(100);
   p_right(73);
-  p_fw_v2(100);
+  p_fw_v2(70);
   claw_open();
   stop();
   while (true)
