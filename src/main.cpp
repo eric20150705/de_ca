@@ -1054,7 +1054,7 @@ void turn_to_grab()
     }
     else
     {
-      motor(-20, 20); // 迴轉中，保持慢速
+      motor(-25, 25); // 迴轉中，保持慢速
     }
   }
   stop();
@@ -1192,6 +1192,34 @@ void setup()
   delay(100);
   // //!  夾中間的物體
   turn_to_grab();
+  stop();
+  delay(100);
+  while (true)
+  {
+    if (IR_RR_read() == 1)
+    {
+
+      break;
+    }
+    else
+    {
+      trail();
+    }
+  }
+  stop();
+  delay(100);
+
+  while (IR_M_read() == 0)
+  {
+    forward();
+  }
+  p_fw_v2(200);
+  delay(100);
+  ninety_leftdegree_turn();
+  stop();
+  delay(100);
+  p_fw_v2(100);
+  trail_to_cross();
   stop();
 
   //?=====================主程式結束=====================
