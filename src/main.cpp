@@ -384,42 +384,42 @@ void forward()
   //  太快轉彎跟不上 → 減少數值：55→45→35
   //  偏左 → 增加左輪：motor(60, 55)
   //  偏右 → 增加右輪：motor(55, 60)
-  motor(85, 85);
+  motor(100, 100);
 }
 void s_Left()
 {
   // 差速左轉：左輪25，右輪45（兩輪皆正轉，右輪較快）
-  motor(32, 35);
+  motor(60, 63);
 }
 
 void s_Right()
 {
   // 差速右轉：左輪45，右輪25（兩輪皆正轉，左輪較快）
-  motor(34, 30);
+  motor(63, 60);
 }
 
 void m_Left()
 {
   // 左轉：左輪停止，右輪35
-  motor(0, 35);
+  motor(0, 23);
 }
 
 void m_Right()
 {
   // 右轉：左輪35，右輪停止
-  motor(35, 0);
+  motor(23, 0);
 }
 
 void b_Left()
 {
   // 急左轉：左輪反轉，右輪正轉
-  motor(-20, 20);
+  motor(-30, 30);
 }
 
 void b_Right()
 {
   // 急右轉：左輪正轉，右輪反轉
-  motor(20, -20);
+  motor(30, -30);
 }
 
 void trail_b_Left()
@@ -1168,27 +1168,30 @@ void setup()
           // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
 
   //?=====================主程式開始=====================
-  prepare_pickup();
-  p_fw_v2(7500);
-  stop();
-  while (IR_L_read() == 0)
+  // prepare_pickup();
+  // p_fw_v2(7500);
+  // stop();
+  // while (IR_L_read() == 0)
+  // {
+  //   forward();
+  // }
+  // stop();
+
+  // trail_to_cross();
+  // stop();
+  // delay(100);
+
+  // trail_to_cross();
+  // stop();
+
+  // //!  夾中間的物體
+  // delay(100);
+  // turn_to_grab();
+  // stop();
+  while (true)
   {
-    forward();
+    trail();
   }
-  stop();                                                 
-
-  trail_to_cross();
-  stop();
-  delay(100);
-
-  trail_to_cross();
-  stop();
-
-  //!  夾中間的物體
-  delay(100);
-  turn_to_grab();
-  stop();
-
   //?=====================主程式結束=====================
 
   //! 以下不需要更動
