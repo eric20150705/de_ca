@@ -150,7 +150,6 @@ void m_Right();        // 右轉 (左輪35，右輪停止)
 void b_Left();         // 急左轉 (左輪-55，右輪55 - 左輪反轉)
 void b_Right();        // 急右轉 (左輪55，右輪-55 - 右輪反轉)
 void stop();           // 停止（兩輪速度都為 0）
-void turn_turn();      // 迴轉
 void trail_to_cross(); // 循跡到十字路口（所有紅外線感測器都偵測到黑線）
 void turn_to_grab();
 void ninety_leftdegree_turn(); // 90 度轉彎（實驗性，根據編碼器計數調整）
@@ -1130,7 +1129,7 @@ void setup()
   trail_to_cross();
   stop();
   delay(100);
-  // //!  夾中間的物體
+  //!  夾中間的物體
   turn_to_grab();
   stop();
   delay(100);
