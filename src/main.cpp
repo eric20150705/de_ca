@@ -73,7 +73,7 @@ int p_left_dis = 0;
 #define ARM_UP 90       // 手臂升起角度（0° = 最低，180° = 最高）
 #define ARM_DOWN 0      // 手臂下降角度
 #define CLAW_OPEN 80    // 爪子開啟角度（夾不住物體）
-#define CLAW_CLOSE 0    // 爪子關閉角度（夾住物體）
+#define CLAW_CLOSE 10   // 爪子關閉角度（夾住物體）
 #define CAMERA_FRONT 90 // 攝像頭往前看（中心位置）
 #define CAMERA_LEFT 170 // 攝像頭往左看（最大角度）
 #define CAMERA_RIGHT 0  // 攝像頭往右看（最小角度）
