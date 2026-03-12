@@ -153,6 +153,9 @@ void oled_show_ir_status(); // 在 OLED 顯示紅外線狀態和編碼器計數
 void huskylens_init(); // 初始化 HuskyLens（I2C 通訊，與 OLED 共用）
 void test_huskylens(); // 測試 HuskyLens 顏色辨識（Serial 輸出 ID 1/2/3 的 X 座標）
 
+// --- 物品辨識 ---
+int color_detect(); // 辨識物品顏色，回傳 0=番茄、1=胡蘿蔔、2=玉米，未偵測到則持續等待
+
 // --- 馬達控制相關函式 ---
 // 低層函式：直接控制左右馬達 PWM 值
 void motor(int L, int R); // 馬達控制 (L:左輪速度 -255~255, R:右輪速度 -255~255)
@@ -305,6 +308,35 @@ void test_huskylens()
   else
   {
     Serial.println("未偵測到任何顏色方塊");
+  }
+}
+
+// --- 物品辨識 ---
+int color_detect()
+{
+  int target = -1;
+  while (target == -1)
+  {
+    huskylens.request();
+    if (huskylens.countBlocks() > 0)
+    {
+      if (huskylens.countBlocks(2) > 0)
+      {
+        target = 1; // 胡蘿蔔
+        return target;
+      }
+      else if (huskylens.countBlocks(1) > 0)
+      {
+        target = 0; // 番茄
+        return target;
+      }
+      else if (huskylens.countBlocks(3) > 0)
+      {
+        target = 2; // 玉米
+        return target;
+      }
+    }
+    delay(100);
   }
 }
 
