@@ -4,10 +4,7 @@
 // 監控：pio device monitor (9600 baud)
 
 #include <Arduino.h>          // Arduino 核心庫（digitalWrite, analogRead 等）
-#include <WiFi.h>             // WiFi 函式庫，用於 OTA 無線更新
-#include <ArduinoOTA.h>       // OTA 無線燒入函式庫
 #include <ESP32Encoder.h>     // ESP32 編碼器庫，用於讀取馬達反饋
-#include <QuickPID.h>         // PID 控制庫（待實作）
 #include <ESP32Servo.h>       // ESP32 伺服馬達庫，用於控制 SG90
 #include <Wire.h>             // I2C 通訊庫，用於 OLED 顯示器
 #include <Adafruit_GFX.h>     // Adafruit 圖形庫，提供 OLED 繪圖功能
@@ -180,7 +177,6 @@ void camera_left();  // 攝像頭轉向左側（170°）
 
 // --- 測試函式 =====
 // 功能：逐一測試各硬體元件是否正常運作，結果透過 Serial 或 OLED 輸出
-void test_encoder(); // 編碼器測試（輸出左右馬達計數值）
 
 // --- 速度閉環控制函式 ---
 // 功能：根據目標速度動態調整 PWM，不受電池電量影響
@@ -190,8 +186,6 @@ void p_bw_v2(int distance); // 新版前進：速度閉環 + 左右同步修正
 
 // --- 循跡功能 ---
 void trail(); // 循跡邏輯（根據 IR 陣列自動調整方向以跟隨黑線）
-
-// --- OTA 無線燒入 ---
 
 // ===== 自訂函式實作區 =====
 // 本區塊包含所有硬體控制和功能邏輯的實現
@@ -422,8 +416,6 @@ void stop()
 {
   // 停止馬達
   motor(0, 0);
-  // leftEncoder.clearCount();
-  // rightEncoder.clearCount();
 }
 
 // ============ 距離控制函式 ============
