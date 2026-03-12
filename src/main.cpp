@@ -42,11 +42,6 @@ bool oled_ready = false;                                              // OLED �
 // 使用 I2C 與 OLED 共用腳位（SDA=21, SCL=22），位址不衝突（HuskyLens=0x32, OLED=0x3C）
 HUSKYLENS huskylens; // HuskyLens 物件
 
-// ===== 極限速度測試結果（全域變數）=====
-// 用於儲存 test_max_speed() 的測試結果，讓 oled_show_ir_status() 也能顯示
-long maxSpeed_L = 0;          // 左輪極限速度（c/100ms）
-long maxSpeed_R = 0;          // 右輪極限速度（c/100ms）
-bool maxSpeed_tested = false; // 是否已測試過
 int p_left_dis = 0;
 
 // ===== 伺服馬達腳位定義 =====
@@ -292,22 +287,6 @@ void oled_show_ir_status()
   display.print(" R:");
   display.println(rightEncoder.getCount()); // 右馬達計數
 
-  // 第三行：顯示極限速度測試結果（如果有）
-  if (maxSpeed_tested)
-  {
-    display.println("--- Max Speed ---");
-    display.print("L:");
-    display.print(maxSpeed_L);
-    display.print(" R:");
-    display.print(maxSpeed_R);
-    display.println(" c/100ms");
-
-    // 建議 c/20ms
-    display.print("c/20ms: L");
-    display.print(maxSpeed_L / 5);
-    display.print(" R");
-    display.print(maxSpeed_R / 5);
-  }
   // 顯示目標值
   display.println();
   display.print("Target L/R:");
