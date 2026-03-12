@@ -152,12 +152,9 @@ void m_Left();         // 左轉 (左輪停止，右輪35)
 void m_Right();        // 右轉 (左輪35，右輪停止)
 void b_Left();         // 急左轉 (左輪-55，右輪55 - 左輪反轉)
 void b_Right();        // 急右轉 (左輪55，右輪-55 - 右輪反轉)
-void trail_b_Left();   // 急左轉 (左輪-35，右輪35 - 左輪反轉)
-void trail_b_Right();  // 急右轉 (左輪35，右輪-35 - 右輪反轉)
 void stop();           // 停止（兩輪速度都為 0）
 void turn_turn();      // 迴轉
 void trail_to_cross(); // 循跡到十字路口（所有紅外線感測器都偵測到黑線）
-void turn_to_right();  // 轉向十字路口（根據紅外線感測器狀態調整方向，直到所有感測器都偵測到黑線）
 void turn_to_grab();
 void ninety_leftdegree_turn(); // 90 度轉彎（實驗性，根據編碼器計數調整）
 
@@ -421,18 +418,6 @@ void b_Right()
   // 急右轉：左輪正轉，右輪反轉
   motor(30, -30);
 }
-
-void trail_b_Left()
-{
-  // 急左轉 (左輪-35，右輪35 - 左輪反轉)
-  motor(-120, 120);
-}
-void trail_b_Right()
-{
-  // 急右轉 (左輪35，右輪-35 - 右輪反轉)
-  motor(120, -120);
-}
-
 void stop()
 {
   // 停止馬達
@@ -617,24 +602,6 @@ void p_right(int degree)
     // delay(10);
     attempts++;
   }
-}
-
-void turn_turn()
-{
-  p_left(130);
-  stop();
-  delay(20);
-  while (true)
-  {
-    trail_b_Left();
-    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
-    {
-      break;
-    }
-    delay(20);
-  }
-  stop();
-  delay(100);
 }
 
 // ============ 伺服馬達控制函式 ============
@@ -1008,12 +975,10 @@ void trail()
     // 激進轉向
     if (IR_L_read() == 1 && IR_R_read() == 0) // 黑線在左邊
     {
-      // trail_b_Left();
       m_Left();
     }
     else if (IR_L_read() == 0 && IR_R_read() == 1) // 黑線在右邊
     {
-      // trail_b_Right();
       m_Right();
     }
   }
@@ -1079,19 +1044,6 @@ void ninety_leftdegree_turn()
     }
   }
 }
-void turn_to_right()
-{
-  while (true)
-
-    if (IR_R_read() == 1)
-    {
-      break;
-    }
-    else
-    {
-      m_Right();
-    }
-}
 // ===== 主程式 =====
 // setup()：初始化所有硬體，在上傳後執行一次
 // loop()：主控制迴圈，在 setup() 完成後反覆執行
@@ -1100,10 +1052,6 @@ void setup()
 {
   // 初始化序列埠通訊，9600 baud
   Serial.begin(9600);
-
-  // --- OTA 無線燒入窗口（reset 後 5 秒內可接收 OTA）---
-  // 若需要 OTA 更新，請在 reset 後立即觸發上傳
-  // ota_setup();
 
   // --- OLED 初始化 ---
   oled_init();
