@@ -158,17 +158,15 @@ void test_huskylens(); // 測試 HuskyLens 顏色辨識（Serial 輸出 ID 1/2/3
 void motor(int L, int R); // 馬達控制 (L:左輪速度 -255~255, R:右輪速度 -255~255)
 
 // 高層動作函式：基於 motor() 實現的複合動作
-void forward();       // 直線前進 (左輪55，右輪55)
-void backward();      // 直線後退 (左輪-25，右輪-25)
-void s_Left();        // 差速左轉 (左輪25，右輪45)
-void s_Right();       // 差速右轉 (左輪45，右輪25)
-void m_Left();        // 左轉 (左輪停止，右輪35)
-void m_Right();       // 右轉 (左輪35，右輪停止)
-void b_Left();        // 急左轉 (左輪-55，右輪55 - 左輪反轉)
-void b_Right();       // 急右轉 (左輪55，右輪-55 - 右輪反轉)
-void trail_b_Left();  // 急左轉 (左輪-35，右輪35 - 左輪反轉)
-void trail_b_Right(); // 急右轉 (左輪35，右輪-35 - 右輪反轉)
-void stop();          // 停止（兩輪速度都為 0）
+void forward();  // 直線前進 (左輪55，右輪55)
+void backward(); // 直線後退 (左輪-25，右輪-25)
+void s_Left();   // 差速左轉 (左輪25，右輪45)
+void s_Right();  // 差速右轉 (左輪45，右輪25)
+void m_Left();   // 左轉 (左輪停止，右輪35)
+void m_Right();  // 右轉 (左輪35，右輪停止)
+void b_Left();   // 急左轉 (左輪-55，右輪55 - 左輪反轉)
+void b_Right();  // 急右轉 (左輪55，右輪-55 - 右輪反轉)
+void stop();     // 停止（兩輪速度都為 0）
 
 // 距離控制函式：根據編碼器反饋控制精確距離
 void p_left(int distance);  // 設定距離左轉
@@ -200,7 +198,6 @@ void test_camera();  // 測試攝像頭伺服動作
 // 功能：逐一測試各硬體元件是否正常運作，結果透過 Serial 或 OLED 輸出
 void test_motor();     // 馬達測試（順序執行：前進、後退、左轉、右轉、停止）
 void test_IR();        // 紅外線感測器測試（輸出 5 路感測值）
-void test_encoder();   // 編碼器測試（輸出左右馬達計數值）
 void test_max_speed(); // 極限速度測試：PWM=255 測量左右輪最大 c/100ms
 void test_speed();     // 即時速度測試：每 100ms 印出左右輪速度，用於觀察
 
@@ -211,13 +208,7 @@ void p_fw_v2(int distance);
 void p_bw_v2(int distance); // 新版前進：速度閉環 + 左右同步修正
 
 // --- 循跡功能 ---
-void trail();       // 循跡邏輯（根據 IR 陣列自動調整方向以跟隨黑線）
-void trail_v2();    // 循跡邏輯 v2（使用速度閉環控制，更平滑穩定）
-void trail_start(); // 開始循跡前的初始化（重置 PWM）
-void trail_stop();  // 結束循跡後的清理（清零 PWM）
-
-// --- OTA 無線燒入 ---
-void ota_setup(); // OTA 開機窗口監聽（reset 後 5 秒內可接收 OTA）
+void trail(); // 循跡邏輯（根據 IR 陣列自動調整方向以跟隨黑線）
 
 // ===== 自訂函式實作區 =====
 // 本區塊包含所有硬體控制和功能邏輯的實現
@@ -479,18 +470,6 @@ void b_Right()
   // 急右轉：左輪正轉，右輪反轉
   motor(55, -55);
 }
-
-void trail_b_Left()
-{
-  // 急左轉 (左輪-35，右輪35 - 左輪反轉)
-  motor(-35, 35);
-}
-void trail_b_Right()
-{
-  // 急右轉 (左輪35，右輪-35 - 右輪反轉)
-  motor(35, -35);
-}
-
 void stop()
 {
   // 停止馬達
@@ -768,7 +747,7 @@ void pickup_object()
 void release_object()
 {
   // 釋放物體的動作序列
-  arm_down_slow(); // 放下手臂
+  arm_down_little(); // 放下手臂到中間位置
   delay(300);
   claw_open(); // 張爪子
   delay(300);
@@ -786,7 +765,6 @@ void prepare_pickup()
 void arm_down_little()
 {
   arm.write(70);
-  delay(100);
 }
 
 // ============ 攝像頭伺服控制函式 ============
@@ -1277,83 +1255,6 @@ void p_bw_v2(int distance)
   R_pwm = 0;
 }
 
-// ============ OTA 無線燒入函式 ============
-// 開機後提供短暫窗口監聽 OTA 請求，時間過後自動進入主程式
-// 若偵測到 OTA 傳輸開始，會自動延長窗口直到傳輸完成
-
-void ota_setup()
-{
-  Serial.println("\n===== OTA 無線燒入模式 =====");
-  Serial.print("正在連接 WiFi: ");
-  Serial.println(WIFI_SSID);
-
-  // --- 連接 WiFi（設定超時）---
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  unsigned long wifiStart = millis();
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    if (millis() - wifiStart > WIFI_TIMEOUT_MS)
-    {
-      Serial.println("WiFi 連線超時，跳過 OTA 窗口");
-      WiFi.disconnect(true);
-      WiFi.mode(WIFI_OFF);
-      return; // 超時直接返回，進入主程式
-    }
-    delay(100);
-    Serial.print(".");
-  }
-
-  // --- WiFi 連線成功 ---
-  Serial.println();
-  Serial.print("WiFi 已連線！IP 位址: ");
-  Serial.println(WiFi.localIP());
-
-  // --- 設定 OTA 回呼函式 ---
-  ArduinoOTA.onStart([]()
-                     {
-    otaInProgress = true;
-    String type = (ArduinoOTA.getCommand() == U_FLASH) ? "程式" : "檔案系統";
-    Serial.println("OTA 開始更新: " + type); });
-
-  ArduinoOTA.onEnd([]()
-                   { Serial.println("\nOTA 更新完成！重新啟動..."); });
-
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total)
-                        { Serial.printf("OTA 進度: %u%%\r", (progress / (total / 100))); });
-
-  ArduinoOTA.onError([](ota_error_t error)
-                     {
-    Serial.printf("OTA 錯誤 [%u]: ", error);
-    if (error == OTA_AUTH_ERROR) Serial.println("驗證失敗");
-    else if (error == OTA_BEGIN_ERROR) Serial.println("開始失敗");
-    else if (error == OTA_CONNECT_ERROR) Serial.println("連線失敗");
-    else if (error == OTA_RECEIVE_ERROR) Serial.println("接收失敗");
-    else if (error == OTA_END_ERROR) Serial.println("結束失敗"); });
-
-  // --- 啟動 OTA 服務 ---
-  ArduinoOTA.begin();
-  Serial.print("OTA 監聽中... (");
-  Serial.print(OTA_WINDOW_MS / 1000);
-  Serial.println(" 秒窗口)");
-
-  // --- OTA 窗口迴圈 ---
-  // 持續監聽直到窗口時間結束，若偵測到 OTA 開始則延長直到完成
-  unsigned long otaStart = millis();
-  while ((millis() - otaStart < OTA_WINDOW_MS) || otaInProgress)
-  {
-    ArduinoOTA.handle();
-    delay(10);
-  }
-
-  // --- 關閉 WiFi，釋放資源 ---
-  Serial.println("OTA 窗口結束，關閉 WiFi...");
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
-  Serial.println("進入主程式執行\n");
-}
-
 // ============ 循跡功能 ============
 // 利用紅外線陣列自動跟隨黑線行進
 
@@ -1381,111 +1282,13 @@ void trail()
     // 激進轉向
     if (IR_L_read() == 1 && IR_R_read() == 0) // 黑線在左邊
     {
-      // trail_b_Left();
       m_Left();
     }
     else if (IR_L_read() == 0 && IR_R_read() == 1) // 黑線在右邊
     {
-      // trail_b_Right();
       m_Right();
     }
   }
-}
-
-void trail_start()
-{
-  //* 開始循跡前的初始化
-  // 重置 PWM 累積值，避免殘留影響
-  L_pwm = 0;
-  R_pwm = 0;
-}
-
-void trail_stop()
-{
-  //* 結束循跡後的清理
-  // 停止馬達並清零 PWM
-  stop();
-  L_pwm = 0;
-  R_pwm = 0;
-}
-
-void trail_v2()
-{
-  //* 循跡邏輯 v2：使用速度閉環控制
-  // ===== 優化版循跡（速度閉環控制）=====
-  // 特點：
-  //   1. 平滑速度控制：不再用固定 PWM 跳動
-  //   2. 電池補償：不受電量影響，保持穩定速度
-  //   3. 精確轉向：根據偏離程度動態調整左右輪速差
-  //
-  // ===== 使用方式 =====
-  // trail_start();  // 開始前：重置 PWM
-  // while (true) {
-  //   trail_v2();   // 循跡邏輯
-  //   if (條件) break;
-  // }
-  // trail_stop();   // 結束後：清零 PWM
-  //
-  // ===== 調參指引 =====
-  //? BASE_SPEED：基礎循跡速度（c/20ms）
-  //  - 建議從 test_max_speed() 結果的 50% 開始
-  //  - 太快轉彎跟不上 → 調低（例：40 → 30）
-  //  - 太慢浪費時間 → 調高（例：40 → 50）
-  //
-  //? TURN_RATIO：轉向強度（0.0~1.0）
-  //  - 微調：0.3 = 外輪保持 70% 速度，內輪 30%
-  //  - 激進：0.8 = 外輪 20%，內輪反轉 80%
-  //  - 調太大容易過度轉向，調太小轉不過彎
-
-  // --- 參數設定 ---
-  const float BASE_SPEED = 10.0;     // 基礎循跡速度（c/20ms），建議極限的 50%
-  const float MILD_TURN_RATIO = 0.5; // 微調轉向強度（中線在黑線上時）
-  const float HARD_TURN_RATIO = 0.8; // 激進轉向強度（中線脫離黑線時）
-
-  // --- 讀取紅外線感測器 ---
-  int LL = IR_LL_read(); // 最左
-  int L = IR_L_read();   // 左
-  int M = IR_M_read();   // 中
-  int R = IR_R_read();   // 右
-  int RR = IR_RR_read(); // 最右
-
-  // --- 計算目標速度（根據感測器狀態）---
-  float L_target = BASE_SPEED; // 左輪目標速度
-  float R_target = BASE_SPEED; // 右輪目標速度
-
-  // === 情況 1：中線在黑線上（方向正確，微調）===
-  if (M == 1)
-  {
-    if (L == 1 && R == 0) // 向左偏 → 左輪減速
-    {
-      L_target = BASE_SPEED * (1 - MILD_TURN_RATIO); // 左輪減速
-      R_target = BASE_SPEED;                         // 右輪維持
-    }
-    else if (L == 0 && R == 1) // 向右偏 → 右輪減速
-    {
-      L_target = BASE_SPEED;                         // 左輪維持
-      R_target = BASE_SPEED * (1 - MILD_TURN_RATIO); // 右輪減速
-    }
-    // else：左右平衡，兩輪都是 BASE_SPEED（直線前進）
-  }
-  // === 情況 2：中線不在黑線上（方向錯誤，激進轉向）===
-  else
-  {
-    if (L == 1 || LL == 1) // 黑線在左邊 → 激進左轉
-    {
-      L_target = -BASE_SPEED * HARD_TURN_RATIO; // 左輪反轉
-      R_target = BASE_SPEED;                    // 右輪正轉
-    }
-    else if (R == 1 || RR == 1) // 黑線在右邊 → 激進右轉
-    {
-      L_target = BASE_SPEED;                    // 左輪正轉
-      R_target = -BASE_SPEED * HARD_TURN_RATIO; // 右輪反轉
-    }
-    // else：所有感測器都不在黑線上 → 保持原方向繼續搜尋
-  }
-
-  // --- 呼叫速度閉環控制 ---
-  speed_control(L_target, R_target);
 }
 
 // ===== 主程式 =====
@@ -1496,10 +1299,6 @@ void setup()
 {
   // 初始化序列埠通訊，9600 baud
   Serial.begin(9600);
-
-  // --- OTA 無線燒入窗口（reset 後 5 秒內可接收 OTA）---
-  // 若需要 OTA 更新，請在 reset 後立即觸發上傳
-  // ota_setup();
 
   // --- OLED 初始化 ---
   oled_init();
@@ -1680,8 +1479,7 @@ void setup()
   p_fw_v2(200);
   yellow_round();
   stop();
-  arm_down_little();
-  claw_open();
+  release_object();
   stop();
   delay(500);
   while (true)
@@ -1813,8 +1611,7 @@ void setup()
   }
   red_round();
   stop();
-  arm_down_little();
-  claw_open();
+  release_object();
   stop();
   p_right(60);
   while (true)
@@ -1881,8 +1678,7 @@ void setup()
   }
   p_fw_v2(300);
   orange_round();
-  arm_down_little();
-  claw_open();
+  release_object();
   //?=====================主程式結束=====================
   //! 以下不需要更動
   //* OLED：持續顯示紅外線狀態和編碼器值
