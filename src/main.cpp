@@ -148,6 +148,10 @@ void stop();           // 停止（兩輪速度都為 0）
 void trail_to_cross(); // 循跡到十字路口（所有紅外線感測器都偵測到黑線）
 void turn_to_grab();
 void ninety_leftdegree_turn(); // 90 度轉彎（實驗性，根據編碼器計數調整）
+void come_back();
+void red_release();
+void orange_release();
+void green_release();
 
 // 距離控制函式：根據編碼器反饋控制精確距離
 void p_left(int distance);  // 設定距離左轉
@@ -625,8 +629,7 @@ void pickup_object()
 void release_object()
 {
   // 釋放物體的動作序列
-  arm_down_slow(); // 放下手臂
-  delay(300);
+
   claw_open(); // 張爪子
   delay(300);
 }
@@ -978,6 +981,7 @@ void turn_to_grab()
   stop();
   delay(300);
   pickup_object();
+
   //! 開始迴轉
   b_Left();
   delay(250);
@@ -995,7 +999,6 @@ void turn_to_grab()
   stop();
   delay(300);
   //! 迴轉完畢
-  trail_to_cross();
 }
 
 void ninety_leftdegree_turn()
@@ -1013,6 +1016,72 @@ void ninety_leftdegree_turn()
       b_Left();
     }
   }
+}
+void come_back()
+{
+
+  while (true)
+  {
+    if (IR_RR_read() == 1 && IR_L_read() == 0)
+    {
+
+      break;
+    }
+    else
+    {
+      trail();
+    }
+  }
+  stop();
+  delay(300);
+
+  while (IR_M_read() == 0)
+  {
+    forward();
+  }
+  p_fw_v2(200);
+  stop();
+  delay(100);
+}
+void red_release()
+{
+  p_fw_v2(175);
+  stop();
+  delay(300);
+
+  release_object();
+  stop();
+  delay(300);
+  p_bw_v2(1500);
+  delay(700);
+  stop();
+  delay(300);
+  ninety_leftdegree_turn();
+  trail_to_cross();
+  stop();
+}
+void orange_release()
+{
+  trail();
+  delay(1000);
+  stop();
+  delay(300);
+  p_left(90);
+  stop();
+  delay(300);
+  p_fw_v2(300);
+  stop();
+  delay(300);
+  release_object();
+  stop();
+  delay(300);
+  p_bw_v2(400);
+  ninety_leftdegree_turn();
+  trail_to_cross();
+  stop();
+  delay(300);
+  trail_to_cross();
+  stop();
 }
 // ===== 主程式 =====
 // setup()：初始化所有硬體，在上傳後執行一次
@@ -1101,6 +1170,7 @@ void setup()
   }
   stop();
   delay(300);
+  p_fw_v2(200);
   ninety_leftdegree_turn();
   trail_to_cross();
   p_fw_v2(400);
@@ -1110,35 +1180,62 @@ void setup()
   delay(100);
   //!  夾中間的物體
   turn_to_grab();
+  trail_to_cross();
   stop();
-  delay(100);
+  delay(300);
+  come_back();
+  stop();
+  delay(300);
+  red_release();
+  prepare_pickup();
+  p_fw_v2(400);
+  stop();
+  delay(300);
+  ninety_leftdegree_turn();
+  trail_to_cross();
+  stop();
+  delay(200);
+  pickup_object();
+  stop();
+  delay(300);
+  b_Left();
+  delay(250);
   while (true)
   {
-    if (IR_RR_read() == 1)
+    if (IR_LL_read() == 1)
     {
-
       break;
     }
     else
     {
-      trail();
+      motor(-25, 25); // 迴轉中，保持慢速
+    }
+  }
+  trail_to_cross();
+  stop();
+  delay(300);
+  p_fw_v2(350);
+  stop();
+
+  b_Right();
+  delay(200);
+  while (true)
+  {
+    if (IR_M_read() == 1&& IR_LL_read() == 0&& IR_RR_read() == 0)
+    {
+      break;
+    }
+    else
+    {
+      motor(25, -25); // 迴轉中，保持慢速
     }
   }
   stop();
-  delay(100);
-
-  while (IR_M_read() == 0)
-  {
-    forward();
-  }
-  p_fw_v2(200);
-  delay(100);
-  ninety_leftdegree_turn();
+  delay(300);
+  come_back();
   stop();
-  delay(100);
-  p_fw_v2(100);
-  trail_to_cross();
-  stop();
+  delay(300);
+  orange_release();
 
   //?=====================主程式結束=====================
 
