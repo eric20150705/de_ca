@@ -689,10 +689,15 @@ void p_right(int degree)
 }
 void orange_round()
 {
-  for (int i = 0; i < 8000; i++)
+  int orange_count = 0;
+  while (true)
   {
-    trail();
+    if (orange_count == 3000)
+    {
+      break;
+    }
   }
+
   p_right(70);
   delay(500);
   stop();
@@ -703,7 +708,7 @@ void red_round()
   {
     trail();
   }
-  p_right(70);
+  p_right(80);
   delay(500);
   stop();
 }
@@ -1401,6 +1406,7 @@ void setup()
   // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
 
   //?=====================主程式開始=====================
+  //*==============第一顆============*
   prepare_pickup();
   int look = 0;
   while (true)
@@ -1415,7 +1421,7 @@ void setup()
     }
   }
   p_fw_v2(200);
-  p_right(45);
+  p_right(30);
   while (true)
   {
     if (IR_M_read() == 1)
@@ -1445,7 +1451,7 @@ void setup()
   while (true)
   {
     b_Left();
-    if ((IR_L_read() == 1))
+    if ((IR_M_read() == 1 || IR_L_read() == 1 || IR_R_read() == 1))
     {
       break;
     }
@@ -1468,6 +1474,16 @@ void setup()
       break;
     }
   }
+  p_fw_v2(150);
+  while (true)
+  {
+    if ((IR_L_read()) == 1 || (IR_M_read()) == 1 || (IR_R_read()) == 1)
+    {
+      stop();
+      break;
+    }
+    b_Right();
+  }
   count = 0;
   while (true)
   {
@@ -1485,7 +1501,7 @@ void setup()
   p_fw_v2(150);
   while (true)
   {
-    if ((IR_L_read()) == 1)
+    if ((IR_L_read()) == 1 || (IR_L_read()) == 1 || (IR_R_read()) == 1)
     {
       stop();
       break;
@@ -1514,6 +1530,7 @@ void setup()
   release_object();
   stop();
   delay(500);
+  //*==============第二顆============*
   while (true)
   {
     if (IR_L_read() == 1)
@@ -1549,15 +1566,33 @@ void setup()
   {
     if ((IR_R_read() == 1) && (IR_L_read() == 1))
     {
-      p_fw_v2(200);
+      p_fw_v2(300);
       count++;
     }
 
     trail();
-    if (count == 2)
+    if (count == 1)
     {
       break;
     }
+  }
+  while (true)
+  {
+    if ((IR_M_read() == 1))
+    {
+      stop();
+      break;
+    }
+    b_Right();
+  }
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      stop();
+      break;
+    }
+    trail();
   }
   p_fw_v2(200);
   prepare_pickup();
@@ -1572,6 +1607,8 @@ void setup()
     }
     b_Right();
   }
+  forward();
+  delay(50);
   while (true)
   {
     if ((IR_R_read() == 1) && (IR_L_read() == 1))
@@ -1582,22 +1619,22 @@ void setup()
     trail();
   }
   pickup_object();
-  p_right(175);
   p_bw_v2(200);
+  p_right(90);
   while (true)
   {
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    if (IR_L_read() == 1 || IR_M_read() == 1 || IR_L_read() == 1)
     {
       stop();
       break;
     }
-    trail();
+    forward();
   }
-  p_fw_v2(200);
-  p_left(45);
+  p_fw_v2(300);
+  // 切去圓環
   while (true)
   {
-    if (IR_M_read() == 1)
+    if (IR_L_read() == 1 || IR_M_read() == 1 || IR_L_read() == 1)
     {
       stop();
       break;
@@ -1611,15 +1648,6 @@ void setup()
     {
       p_fw_v2(100);
       count++;
-      while (true)
-      {
-        if (IR_M_read() == 1)
-        {
-          stop();
-          break;
-        }
-        b_Left();
-      }
     }
 
     trail();
@@ -1641,15 +1669,21 @@ void setup()
       break;
     }
   }
+  stop();
+  forward();
+  delay(200);
+  stop();
+  delay(1000);
   red_round();
   stop();
   release_object();
   stop();
-  p_right(60);
+  p_right(70);
+  //*==============第三顆============*
   while (true)
   {
     b_Right();
-    if (IR_M_read() == 1)
+    if (IR_M_read() == 1 || IR_L_read() == 1 || IR_R_read() == 1)
     {
       stop();
       break;
@@ -1675,7 +1709,16 @@ void setup()
     trail();
   }
   p_fw_v2(200);
-  p_left(90);
+  p_left(45);
+  while (true)
+  {
+    if (IR_M_read() == 1)
+    {
+      stop();
+      break;
+    }
+    b_Left();
+  }
   prepare_pickup();
   while (true)
   {
@@ -1686,8 +1729,18 @@ void setup()
     }
     trail();
   }
+  //*到第三顆的路口
   pickup_object();
-  p_right(180);
+  p_left(70);
+  while (true)
+  {
+    if (IR_L_read() == 1 || IR_M_read() == 1 || IR_R_read() == 1)
+    {
+      stop();
+      break;
+    }
+    b_Left();
+  }
   while (true)
   {
     if ((IR_R_read() == 1) && (IR_L_read() == 1))
@@ -1708,7 +1761,11 @@ void setup()
     }
     trail();
   }
-  p_fw_v2(300);
+  stop();
+  forward();
+  delay(300);
+  stop();
+  delay(1000);
   orange_round();
   release_object();
   //?=====================主程式結束=====================
