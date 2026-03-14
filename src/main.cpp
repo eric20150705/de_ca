@@ -987,7 +987,7 @@ void turn_to_grab()
   delay(250);
   while (true)
   {
-    if (IR_LL_read() == 1)
+    if (IR_L_read() == 1)
     {
       break;
     }
@@ -998,13 +998,15 @@ void turn_to_grab()
   }
   stop();
   delay(300);
+  p_bw_v2(400); // 迴轉後退一段距離，避免抓取物體時碰撞
+  stop();
   //! 迴轉完畢
 }
 
 void ninety_leftdegree_turn()
 {
   b_Left();
-  delay(250);
+  delay(150);
   while (true)
   {
     if (IR_LL_read() == 1)
@@ -1033,26 +1035,28 @@ void come_back()
     }
   }
   stop();
-  delay(300);
-
+  delay(100);
   while (IR_M_read() == 0)
   {
-    forward();
+    motor(30, 55);
   }
-  p_fw_v2(200);
   stop();
   delay(100);
+  p_fw_v2(300);
+  stop();
+  delay(300);
 }
 void red_release()
 {
-  p_fw_v2(175);
+ 
+  p_fw_v2(200);
   stop();
   delay(300);
 
   release_object();
   stop();
   delay(300);
-  p_bw_v2(1500);
+  p_bw_v2(1700);
   delay(700);
   stop();
   delay(300);
@@ -1062,11 +1066,70 @@ void red_release()
 }
 void orange_release()
 {
-  trail();
-  delay(1000);
+  b_Left();
+  delay(150);
+  while (true)
+  {
+    if (IR_LL_read() == 1)
+    {
+      break;
+    }
+    else
+    {
+      b_Left();
+    }
+  }
+  stop();
+  delay(100);
+  for (int i = 0; i < 1100; i++)
+  {
+    trail();
+    delay(1);
+  }
   stop();
   delay(300);
-  p_left(90);
+  p_bw_v2(800);
+  motor(0, -40);
+  delay(300);
+  stop();
+  delay(300);
+  p_fw_v2(300);
+
+  release_object();
+  stop();
+  delay(300); 
+  p_bw_v2(50);
+  stop();
+  delay(300);
+  ninety_leftdegree_turn();
+  trail_to_cross();
+  stop();
+  delay(300);
+  trail_to_cross();
+  stop();
+}
+void green_realease()
+{
+  b_Left();
+  delay(150);
+  while (true)
+  {
+    if (IR_LL_read() == 1)
+    {
+      break;
+    }
+    else
+    {
+      b_Left();
+    }
+  }
+  stop();
+  delay(100);
+  trail();
+  delay(10);
+  stop();
+  delay(300);
+  p_right(180);
   stop();
   delay(300);
   p_fw_v2(300);
@@ -1193,50 +1256,105 @@ void setup()
   p_fw_v2(400);
   stop();
   delay(300);
+
   ninety_leftdegree_turn();
+  stop();
+
+  delay(300);
+  p_bw_v2(400);
+  stop();
+  delay(300);
   trail_to_cross();
   stop();
   delay(200);
+
+  p_fw_v2(100);
+  stop();
+  delay(300);
   pickup_object();
   stop();
   delay(300);
-  b_Left();
-  delay(250);
-  while (true)
-  {
-    if (IR_LL_read() == 1)
-    {
-      break;
-    }
-    else
-    {
-      motor(-25, 25); // 迴轉中，保持慢速
-    }
-  }
+  ninety_leftdegree_turn();
+  stop();
+
   trail_to_cross();
   stop();
-  delay(300);
-  p_fw_v2(350);
+  p_fw_v2(300);
   stop();
+  delay(300);
   b_Right();
-  delay(200);
+  delay(150);
   while (true)
   {
-    if (IR_M_read() == 1 && IR_LL_read() == 0 && IR_RR_read() == 0)
+    if (IR_R_read() == 1)
     {
       break;
     }
     else
     {
-      motor(25, -25); // 迴轉中，保持慢速
+      b_Right();
     }
   }
   stop();
-  delay(300);
+  delay(50);
   come_back();
+  orange_release();
+  prepare_pickup();
+  p_fw_v2(100);
   stop();
   delay(300);
-  orange_release();
+  while (true)
+  {
+    if (IR_RR_read() == 1)
+    {
+      break;
+    }
+    else
+    {
+      b_Right();
+    }
+  }
+  
+  stop();
+
+  delay(300);
+  p_bw_v2(400);
+  stop();
+  delay(300);
+  trail_to_cross();
+  stop();
+  delay(200);
+
+  p_fw_v2(100);
+  stop();
+  delay(300);
+  pickup_object();
+  stop();
+  delay(300);
+  ninety_leftdegree_turn();
+  stop();
+
+  trail_to_cross();
+  stop();
+  p_fw_v2(300);
+  stop();
+  delay(300);
+  b_Left();
+  delay(150);
+  while (true)
+  {
+    if (IR_L_read() == 1)
+    {
+      break;
+    }
+    else
+    {
+      b_Left();
+    }
+  }
+  stop();
+  delay(50);
+  come_back();
 
   //?=====================主程式結束=====================
 
