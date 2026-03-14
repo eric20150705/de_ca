@@ -703,7 +703,7 @@ void p_right(int degree)
 }
 void orange_round()
 {
-  for (int i = 0; i < 7000; i++)
+  for (int i = 0; i < 6500; i++)
   {
     trail();
   }
@@ -720,7 +720,7 @@ void red_round()
     trail();
   }
   backward_slow();
-  delay(500);
+  delay(650);
   p_right(65);
   p_bw_v2(100);
   p_left(10);
@@ -1739,7 +1739,7 @@ void setup()
   p_left(45);
   while (true)
   {
-    if (IR_M_read() == 1)
+    if (IR_M_read() == 1 || IR_L_read() == 1 || IR_R_read() == 1)
     {
       stop();
       break;
