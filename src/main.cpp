@@ -70,13 +70,14 @@ int p_left_dis = 0;
 
 // ===== 伺服馬達角度設定 =====
 // SG90 伺服馬達角度範圍 0~180°，根據機械結構調整以下角度
-#define ARM_UP 90       // 手臂升起角度（0° = 最低，180° = 最高）
-#define ARM_DOWN 0      // 手臂下降角度
-#define CLAW_OPEN 80    // 爪子開啟角度（夾不住物體）
-#define CLAW_CLOSE 10   // 爪子關閉角度（夾住物體）
-#define CAMERA_FRONT 90 // 攝像頭往前看（中心位置）
-#define CAMERA_LEFT 170 // 攝像頭往左看（最大角度）
-#define CAMERA_RIGHT 0  // 攝像頭往右看（最小角度）
+#define ARM_UP 90           // 手臂升起角度（0° = 最低，180° = 最高）
+#define ARM_DOWN 0          // 手臂下降角度
+#define CLAW_OPEN 80        // 爪子開啟角度（夾不住物體）
+#define CLAW_OPEN_LITTLE 60 // 爪子微開角度（夾住物體但不太緊）
+#define CLAW_CLOSE 10       // 爪子關閉角度（夾住物體）
+#define CAMERA_FRONT 90     // 攝像頭往前看（中心位置）
+#define CAMERA_LEFT 170     // 攝像頭往左看（最大角度）
+#define CAMERA_RIGHT 0      // 攝像頭往右看（最小角度）
 
 // ===== 編碼器腳位定義 =====
 // 編碼器：計數輪子轉動的感測器
@@ -161,15 +162,17 @@ int color_detect(); // 辨識物品顏色，回傳 0=番茄、1=胡蘿蔔、2=�
 void motor(int L, int R); // 馬達控制 (L:左輪速度 -255~255, R:右輪速度 -255~255)
 
 // 高層動作函式：基於 motor() 實現的複合動作
-void forward();  // 直線前進 (左輪55，右輪55)
-void backward(); // 直線後退 (左輪-25，右輪-25)
-void s_Left();   // 差速左轉 (左輪25，右輪45)
-void s_Right();  // 差速右轉 (左輪45，右輪25)
-void m_Left();   // 左轉 (左輪停止，右輪35)
-void m_Right();  // 右轉 (左輪35，右輪停止)
-void b_Left();   // 急左轉 (左輪-55，右輪55 - 左輪反轉)
-void b_Right();  // 急右轉 (左輪55，右輪-55 - 右輪反轉)
-void stop();     // 停止（兩輪速度都為 0）
+void forward();       // 直線前進 (左輪55，右輪55)
+void backward();      // 直線後退 (左輪-25，右輪-25)
+void backward_slow(); // 慢速後退 (左輪-15，右輪-15)
+void forward_slow();  // 慢速前進 (左輪35，右輪35)
+void s_Left();        // 差速左轉 (左輪25，右輪45)
+void s_Right();       // 差速右轉 (左輪45，右輪25)
+void m_Left();        // 左轉 (左輪停止，右輪35)
+void m_Right();       // 右轉 (左輪35，右輪停止)
+void b_Left();        // 急左轉 (左輪-55，右輪55 - 左輪反轉)
+void b_Right();       // 急右轉 (左輪55，右輪-55 - 右輪反轉)
+void stop();          // 停止（兩輪速度都為 0）
 
 // 距離控制函式：根據編碼器反饋控制精確距離
 void p_left(int distance);  // 設定距離左轉
@@ -189,7 +192,8 @@ void arm_down_little(); // 爪子關閉（寫入 CLAW_CLOSE 角度）
 
 // 複合伺服動作
 void pickup_object();  // 撿取物體動作序列（張爪 → 下降 → 夾爪 → 上升）
-void release_object(); // 釋放物體動作序列（下降 → 張爪）
+void release_object(); // 釋放物體動作序列（下降 → 張爪)
+void release_object_little();
 void prepare_pickup(); // 打開爪子並且降下手臂，準備撿取物體
 // --- 攝像頭伺服控制函式 ---
 void camera_front(); // 攝像頭轉向正前方（90°）
@@ -466,6 +470,16 @@ void backward()
   //? 調參指引：太慢增加數值 25→35、太快減少數值 25→15
   motor(-25, -25); // 左右輪相同速度後退
 }
+void backward_slow()
+{
+  // 慢速後退：左輪-15，右輪-15
+  motor(-50, -50);
+}
+void forward_slow()
+{
+  // 慢速前進：左輪15，右輪15
+  motor(15, 15);
+}
 
 void s_Left()
 {
@@ -689,18 +703,15 @@ void p_right(int degree)
 }
 void orange_round()
 {
-  int orange_count = 0;
-  while (true)
+  for (int i = 0; i < 7000; i++)
   {
-    if (orange_count == 3000)
-    {
-      break;
-    }
+    trail();
   }
-
-  p_right(70);
-  delay(500);
-  stop();
+  backward_slow();
+  delay(600);
+  p_right(65);
+  p_bw_v2(100);
+  p_left(10);
 }
 void red_round()
 {
@@ -708,9 +719,11 @@ void red_round()
   {
     trail();
   }
-  p_right(80);
+  backward_slow();
   delay(500);
-  stop();
+  p_right(65);
+  p_bw_v2(100);
+  p_left(10);
 }
 void yellow_round()
 {
@@ -727,7 +740,11 @@ void yellow_round()
   {
     trail();
   }
-  p_left(70);
+  backward_slow();
+  delay(500);
+  p_left(55);
+  p_bw_v2(100);
+  p_left(10);
   delay(500);
   stop();
 }
@@ -761,13 +778,22 @@ void arm_down_slow()
 void claw_open()
 {
   // 寫入 CLAW_OPEN 角度，使爪子開啟
+
   claw.write(CLAW_OPEN);
+  delay(200);
+  claw.detach(); // 釋放爪子伺服，讓它保持在當前位置不受干擾
 }
 
 void claw_close()
 {
   // 寫入 CLAW_CLOSE 角度，使爪子關閉
+  // 需要重新 attach 才能控制
+  if (!claw.attached())
+  {
+    claw.attach(CLAW_PIN, 500, 2400);
+  }
   claw.write(CLAW_CLOSE);
+  delay(200);
 }
 
 void pickup_object()
@@ -789,7 +815,13 @@ void release_object()
   claw_open(); // 張爪子
   delay(300);
 }
-
+void release_object_little()
+{
+  // 釋放物體的動作序列
+  arm_down_little(); // 放下手臂到中間位置
+  delay(300);
+  claw_open(); // 張爪子
+}
 void prepare_pickup()
 {
   // 打開爪子並且降下手臂，準備撿取物體
@@ -1447,7 +1479,8 @@ void setup()
     }
   }
   pickup_object();
-  p_left(100);
+  p_bw_v2(200);
+  p_left(50);
   while (true)
   {
     b_Left();
@@ -1456,9 +1489,6 @@ void setup()
       break;
     }
   }
-  stop();
-  delay(500);
-
   int count = 0;
   while (true)
   {
@@ -1474,34 +1504,23 @@ void setup()
       break;
     }
   }
-  p_fw_v2(150);
+  stop();
+  delay(50);
+  // 入口2準備切
+  p_fw_v2(500);
   while (true)
   {
-    if ((IR_L_read()) == 1 || (IR_M_read()) == 1 || (IR_R_read()) == 1)
+    if ((IR_M_read() == 1))
     {
       stop();
+      p_fw_v2(200);
       break;
     }
-    b_Right();
+    forward();
   }
-  count = 0;
   while (true)
   {
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
-    {
-      count++;
-    }
-
-    trail();
-    if (count == 1)
-    {
-      break;
-    }
-  }
-  p_fw_v2(150);
-  while (true)
-  {
-    if ((IR_L_read()) == 1 || (IR_L_read()) == 1 || (IR_R_read()) == 1)
+    if ((IR_M_read() == 1) || (IR_L_read() == 1) || (IR_R_read() == 1))
     {
       stop();
       break;
@@ -1524,10 +1543,11 @@ void setup()
     }
   }
   stop();
-  p_fw_v2(200);
   yellow_round();
+  arm_down_little();
   stop();
-  release_object();
+  release_object_little();
+  p_bw_v2(200);
   stop();
   delay(500);
   //*==============第二顆============*
@@ -1656,29 +1676,26 @@ void setup()
       break;
     }
   }
-  while (true)
-  {
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
-    {
-      p_fw_v2(150);
-      count++;
-    }
-    trail();
-    if (count == 1)
-    {
-      break;
-    }
-  }
-  stop();
-  forward();
-  delay(200);
   stop();
   delay(1000);
+  while (true)
+  {
+    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
+    {
+      stop();
+      break;
+    }
+    b_Left();
+  }
+  forward();
+  delay(100);
   red_round();
+  arm_down_little();
   stop();
-  release_object();
+  release_object_little();
+  p_bw_v2(200);
   stop();
-  p_right(70);
+  delay(500);
   //*==============第三顆============*
   while (true)
   {
@@ -1699,6 +1716,15 @@ void setup()
     trail();
   }
   p_fw_v2(300);
+  while (true)
+  {
+    if ((IR_M_read() == 1) || (IR_L_read() == 1) || (IR_R_read() == 1))
+    {
+      stop();
+      break;
+    }
+    b_Left();
+  }
   while (true)
   {
     if ((IR_R_read() == 1) && (IR_L_read() == 1))
@@ -1722,6 +1748,15 @@ void setup()
   prepare_pickup();
   while (true)
   {
+    if (IR_M_read() == 1 || IR_L_read() == 1 || IR_R_read() == 1)
+    {
+      stop();
+      break;
+    }
+    b_Left();
+  }
+  while (true)
+  {
     if ((IR_R_read() == 1) && (IR_L_read() == 1))
     {
       stop();
@@ -1731,7 +1766,8 @@ void setup()
   }
   //*到第三顆的路口
   pickup_object();
-  p_left(70);
+  p_bw_v2(200);
+  p_left(50);
   while (true)
   {
     if (IR_L_read() == 1 || IR_M_read() == 1 || IR_R_read() == 1)
@@ -1750,24 +1786,24 @@ void setup()
     }
     trail();
   }
+  // 到目標物的圓圈十字路口
   p_fw_v2(200);
-  p_right(90);
   while (true)
   {
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
     {
       stop();
       break;
     }
-    trail();
+    b_Left();
   }
-  stop();
-  forward();
-  delay(300);
-  stop();
-  delay(1000);
   orange_round();
-  release_object();
+  arm_down_little();
+  stop();
+  release_object_little();
+  p_bw_v2(200);
+  stop();
+  delay(500);
   //?=====================主程式結束=====================
   //! 以下不需要更動
   //* OLED：持續顯示紅外線狀態和編碼器值
