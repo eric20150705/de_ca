@@ -1161,9 +1161,9 @@ void setup()
 
   //?=====================主程式開始=====================
   prepare_pickup();
-
   p_fw_v2(7600);
   stop();
+
   while (IR_L_read() == 0)
   {
     forward();
@@ -1172,14 +1172,16 @@ void setup()
   delay(300);
   p_fw_v2(200);
   ninety_leftdegree_turn();
+  //*==============回到線上準備前往卸貨區的十字入口============*
   trail_to_cross();
   p_fw_v2(400);
   ninety_leftdegree_turn();
+  //*==============到卸貨區的十字入口============*
   trail_to_cross();
   stop();
   delay(100);
-  //!  夾中間的物體
   turn_to_grab();
+  //*==============到夾貨物的地方============*
   trail_to_cross();
   stop();
   delay(300);
@@ -1216,12 +1218,11 @@ void setup()
   delay(300);
   p_fw_v2(350);
   stop();
-
   b_Right();
   delay(200);
   while (true)
   {
-    if (IR_M_read() == 1&& IR_LL_read() == 0&& IR_RR_read() == 0)
+    if (IR_M_read() == 1 && IR_LL_read() == 0 && IR_RR_read() == 0)
     {
       break;
     }
