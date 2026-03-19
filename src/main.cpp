@@ -1022,66 +1022,20 @@ void ninety_leftdegree_turn()
 void come_back()
 {
 
-  while (true)
-  {
-    if (IR_RR_read() == 1 && IR_L_read() == 0)
-    {
-
-      break;
-    }
-    else
-    {
-      trail();
-    }
-  }
+  trail_to_cross();
   stop();
-  delay(100);
-  while (IR_M_read() == 0)
-  {
-    motor(30, 55);
-  }
+  delay(300);
+  p_fw_v2(200);
   stop();
-  delay(100);
-  p_fw_v2(300);
+  delay(300);
+  ninety_leftdegree_turn();
   stop();
   delay(300);
 }
 void red_release()
 {
- 
-  p_fw_v2(200);
-  stop();
-  delay(300);
 
-  release_object();
-  stop();
-  delay(300);
-  p_bw_v2(1700);
-  delay(700);
-  stop();
-  delay(300);
-  ninety_leftdegree_turn();
-  trail_to_cross();
-  stop();
-}
-void orange_release()
-{
-  b_Left();
-  delay(150);
-  while (true)
-  {
-    if (IR_LL_read() == 1)
-    {
-      break;
-    }
-    else
-    {
-      b_Left();
-    }
-  }
-  stop();
-  delay(100);
-  for (int i = 0; i < 1100; i++)
+  for (int i = 0; i < 1200; i++)
   {
     trail();
     delay(1);
@@ -1093,11 +1047,43 @@ void orange_release()
   delay(300);
   stop();
   delay(300);
-  p_fw_v2(300);
+  p_fw_v2(200);
+  stop();
+  delay(300);
 
   release_object();
   stop();
-  delay(300); 
+  delay(300);
+  p_bw_v2(50);
+  stop();
+  delay(300);
+  ninety_leftdegree_turn();
+  trail_to_cross();
+  stop();
+  delay(300);
+  trail_to_cross();
+  stop();
+}
+void orange_release()
+{
+
+  for (int i = 0; i < 2000; i++)
+  {
+    trail();
+    delay(1);
+  }
+  stop();
+  delay(300);
+  p_bw_v2(800);
+  motor(0, -40);
+  delay(300);
+  stop();
+  delay(300);
+  p_fw_v2(200);
+
+  release_object();
+  stop();
+  delay(300);
   p_bw_v2(50);
   stop();
   delay(300);
@@ -1110,35 +1096,27 @@ void orange_release()
 }
 void green_realease()
 {
-  b_Left();
-  delay(150);
-  while (true)
+
+  for (int i = 0; i < 3000; i++)
   {
-    if (IR_LL_read() == 1)
-    {
-      break;
-    }
-    else
-    {
-      b_Left();
-    }
+    trail();
+    delay(1);
   }
   stop();
-  delay(100);
-  trail();
-  delay(10);
+  delay(300);
+  p_bw_v2(800);
+  motor(0, -40);
+  delay(300);
   stop();
   delay(300);
-  p_right(180);
-  stop();
-  delay(300);
-  p_fw_v2(300);
-  stop();
-  delay(300);
+  p_fw_v2(150);
+
   release_object();
   stop();
   delay(300);
-  p_bw_v2(400);
+  p_bw_v2(50);
+  stop();
+  delay(300);
   ninety_leftdegree_turn();
   trail_to_cross();
   stop();
@@ -1240,9 +1218,30 @@ void setup()
   p_fw_v2(400);
   ninety_leftdegree_turn();
   //*==============到卸貨區的十字入口============*
+  while (true)
+  {
+
+    if ((IR_LL_read() == 1) )
+    {
+
+      break; // 任一感測器讀到黑線，停止循跡
+    }
+    else
+    {
+
+      trail();
+    }
+
+  }
+  ninety_leftdegree_turn();
+
+    
+  stop();
+  delay(300);
   trail_to_cross();
   stop();
-  delay(100);
+  delay(300);
+  
   turn_to_grab();
   //*==============到夾貨物的地方============*
   trail_to_cross();
@@ -1299,10 +1298,16 @@ void setup()
   delay(50);
   come_back();
   orange_release();
-  prepare_pickup();
-  p_fw_v2(100);
   stop();
   delay(300);
+  prepare_pickup();
+  stop();
+  delay(300);
+  p_fw_v2(300);
+  stop();
+  delay(300);
+  b_Right();
+  delay(150);
   while (true)
   {
     if (IR_RR_read() == 1)
@@ -1314,7 +1319,7 @@ void setup()
       b_Right();
     }
   }
-  
+
   stop();
 
   delay(300);
@@ -1338,23 +1343,12 @@ void setup()
   stop();
   p_fw_v2(300);
   stop();
-  delay(300);
-  b_Left();
-  delay(150);
-  while (true)
-  {
-    if (IR_L_read() == 1)
-    {
-      break;
-    }
-    else
-    {
-      b_Left();
-    }
-  }
+  delay(500);
+  ninety_leftdegree_turn();
   stop();
   delay(50);
   come_back();
+  green_realease();
 
   //?=====================主程式結束=====================
 
