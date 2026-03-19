@@ -1540,7 +1540,14 @@ void setup()
   {
     if ((IR_R_read() == 1) && (IR_L_read() == 1))
     {
-      break;
+      p_fw_v2(150);
+      look++;
+
+      if (look == 3)
+      {
+        stop();
+        break;
+      }
     }
     else
     {
@@ -1598,57 +1605,11 @@ void setup()
       break;
     }
   }
-  int count = 0;
   while (true)
   {
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
-    {
-      p_fw_v2(150);
-      count++;
-    }
-
-    trail();
-    if (count == 1)
-    {
-      break;
-    }
-  }
-  stop();
-  p_right(10);
-  delay(50);
-  // 入口2準備切
-  p_fw_v2(1200);
-  while (true)
-  {
-    if ((IR_M_read() == 1))
+    if (IR_L_read() == 1 && IR_R_read() == 1)
     {
       stop();
-      p_fw_v2(200);
-      break;
-    }
-    forward();
-  }
-  while (true)
-  {
-    if ((IR_M_read() == 1) || (IR_L_read() == 1) || (IR_R_read() == 1))
-    {
-      stop();
-      break;
-    }
-    b_Left();
-  }
-  count = 0;
-  while (true)
-  {
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
-    {
-      p_fw_v2(150);
-      count++;
-    }
-
-    trail();
-    if (count == 1)
-    {
       break;
     }
   }
@@ -1665,242 +1626,6 @@ void setup()
   {
     orange_round();
   }
-  //*==============第二顆============*
-  count = 0;
-  while (true)
-  {
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
-    {
-      p_fw_v2(300);
-      count++;
-    }
-
-    trail();
-    if (count == 1)
-    {
-      break;
-    }
-  }
-  while (true)
-  {
-    if ((IR_M_read() == 1))
-    {
-      stop();
-      break;
-    }
-    b_Right();
-  }
-  while (true)
-  {
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
-    {
-      stop();
-      break;
-    }
-    trail();
-  }
-  p_fw_v2(200);
-  prepare_pickup();
-  p_right(45);
-  while (true)
-  {
-    if (IR_M_read() == 1)
-    {
-      stop();
-      p_right(2);
-      break;
-    }
-    b_Right();
-  }
-  forward();
-  delay(50);
-  while (true)
-  {
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
-    {
-      stop();
-      break;
-    }
-    trail();
-  }
-  if (color_detect() == 1)
-  {
-    color = 1; // 玉米
-  }
-  else if (color_detect() == 2)
-  {
-    color = 2; // 番茄
-  }
-  else if (color_detect() == 3)
-  {
-    color = 3; // 羅蔔
-  }
-  pickup_object();
-  p_bw_v2(200);
-  p_right(100);
-  while (true)
-  {
-    if (IR_L_read() == 1 || IR_M_read() == 1 || IR_L_read() == 1)
-    {
-      stop();
-      break;
-    }
-    forward();
-  }
-  p_fw_v2(300);
-  // 切去圓環
-  while (true)
-  {
-    if (IR_L_read() == 1 || IR_M_read() == 1 || IR_L_read() == 1)
-    {
-      stop();
-      break;
-    }
-    b_Left();
-  }
-  count = 0;
-  while (true)
-  {
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
-    {
-      p_fw_v2(100);
-      count++;
-    }
-
-    trail();
-    if (count == 1)
-    {
-      break;
-    }
-  }
-  stop();
-  delay(300);
-  while (true)
-  {
-    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
-    {
-      stop();
-      break;
-    }
-    b_Left();
-  }
-  forward();
-  delay(100);
-  if (color == 1)
-  {
-    yellow_round();
-  }
-  else if (color == 2)
-  {
-    red_round();
-  }
-  else if (color == 3)
-  {
-    orange_round();
-  }
-  //*==============第三顆============*
-  while (true)
-  {
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
-    {
-      stop();
-      break;
-    }
-    trail();
-  }
-  p_fw_v2(200);
-  p_left(45);
-  while (true)
-  {
-    if (IR_M_read() == 1 || IR_L_read() == 1 || IR_R_read() == 1)
-    {
-      stop();
-      break;
-    }
-    b_Left();
-  }
-  prepare_pickup();
-  while (true)
-  {
-    if (IR_M_read() == 1 || IR_L_read() == 1 || IR_R_read() == 1)
-    {
-      stop();
-      break;
-    }
-    b_Left();
-  }
-  while (true)
-  {
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
-    {
-      stop();
-      break;
-    }
-    trail();
-  }
-  if (color_detect() == 1)
-  {
-    color = 1; // 玉米
-  }
-  else if (color_detect() == 2)
-  {
-    color = 2; // 番茄
-  }
-  else if (color_detect() == 3)
-  {
-    color = 3; // 羅蔔
-  }
-  pickup_object();
-  //*到第三顆的路口
-  p_bw_v2(200);
-  p_left(50);
-  while (true)
-  {
-    if (IR_L_read() == 1 || IR_M_read() == 1 || IR_R_read() == 1)
-    {
-      stop();
-      break;
-    }
-    b_Left();
-  }
-  while (true)
-  {
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
-    {
-      stop();
-      break;
-    }
-    trail();
-  }
-  // 到目標物的圓圈十字路口
-  p_fw_v2(200);
-  while (true)
-  {
-    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
-    {
-      stop();
-      break;
-    }
-    b_Left();
-  }
-  if (color == 1)
-  {
-    yellow_round();
-  }
-  else if (color == 2)
-  {
-    red_round();
-  }
-  else if (color == 3)
-  {
-    orange_round();
-  }
-  arm_down_little();
-  stop();
-  release_object_little();
-  p_bw_v2(200);
-  stop();
-  delay(500);
   //?=====================主程式結束=====================
   //! 以下不需要更動
   //* OLED：持續顯示紅外線狀態和編碼器值
