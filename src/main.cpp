@@ -708,7 +708,7 @@ void orange_round()
     trail();
   }
   backward_slow();
-  delay(600);
+  delay(100);
   p_right(65);
   p_bw_v2(100);
   p_left(10);
@@ -717,7 +717,7 @@ void orange_round()
   release_object_little();
   p_bw_v2(200);
   stop();
-  delay(500);
+  delay(100);
   while (true)
   {
     if (IR_L_read() == 1)
@@ -755,7 +755,7 @@ void red_round()
     trail();
   }
   backward_slow();
-  delay(650);
+  delay(100);
   p_right(65);
   p_bw_v2(100);
   p_left(10);
@@ -764,7 +764,7 @@ void red_round()
   release_object_little();
   p_bw_v2(200);
   stop();
-  delay(500);
+  delay(100);
   while (true)
   {
     if (IR_L_read() == 1 || IR_R_read() == 1 || IR_M_read() == 1)
@@ -801,18 +801,18 @@ void yellow_round()
     trail();
   }
   backward_slow();
-  delay(500);
+  delay(100);
   p_left(55);
   p_bw_v2(100);
   p_left(10);
-  delay(500);
+  delay(100);
   stop();
   arm_down_little();
   stop();
   release_object_little();
   p_bw_v2(200);
   stop();
-  delay(500);
+  delay(100);
   while (true)
   {
     if (IR_L_read() == 1)
@@ -897,7 +897,7 @@ void pickup_object()
   arm_down(); // 放下手臂
   delay(100);
   claw_close(); // 夾爪子
-  delay(1000);
+  delay(500);
   arm_up(); // 抬起手臂
   delay(100);
 }
@@ -1774,7 +1774,7 @@ void setup()
     }
   }
   stop();
-  delay(1000);
+  delay(300);
   while (true)
   {
     if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
