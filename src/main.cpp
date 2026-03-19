@@ -43,6 +43,7 @@ bool oled_ready = false;                                              // OLED �
 HUSKYLENS huskylens; // HuskyLens 物件
 
 int p_left_dis = 0;
+int detected_color = -1; // 存儲顏色偵測結果：1=紅/2=橙/3=綠，-1=未偵測
 
 // ===== 伺服馬達腳位定義 =====
 // 使用 ESP32 的 GPIO 腳位連接 SG90 伺服馬達（PWM 控制）
@@ -255,6 +256,35 @@ void huskylens_init()
     delay(500);
   }
   Serial.println("HuskyLens 初始化成功！");
+}
+
+// --- 物品辨識 ---
+int color_detect()
+{
+  int target = -1;
+  while (target == -1)
+  {
+    huskylens.request();
+    if (huskylens.countBlocks() > 0)
+    {
+      if (huskylens.countBlocks(1) > 0)
+      {
+        target = 1; // 玉米，黃色
+        return target;
+      }
+      else if (huskylens.countBlocks(2) > 0)
+      {
+        target = 2; // 胡蘿蔔，橘色
+        return target;
+      }
+      else if (huskylens.countBlocks(3) > 0)
+      {
+        target = 3; // 番茄，綠色
+        return target;
+      }
+    }
+    delay(100);
+  }
 }
 
 void oled_show_ir_status()
@@ -599,7 +629,6 @@ void arm_down_slow()
   // 慢慢往下放
   arm.write(70);
   delay(50);
-
 }
 
 void claw_open()
@@ -978,8 +1007,9 @@ void turn_to_grab()
   trail_to_cross();
   stop();
   delay(300);
+  detected_color = color_detect();
   pickup_object();
-
+ 
   //! 開始迴轉
   ninety_leftdegree_turn();
   stop();
@@ -1014,9 +1044,6 @@ void come_back()
   p_fw_v2(400);
   stop();
   delay(300);
-  
-  
-  
 }
 void red_release()
 {
@@ -1037,17 +1064,15 @@ void red_release()
   {
     if ((IR_L_read() == 1) && (IR_R_read() == 1) && (IR_M_read() == 1))
     {
-     break; // 任一感測器讀到黑線，停止循跡
+      break; // 任一感測器讀到黑線，停止循跡
     }
     else
     {
 
       motor(-30, -50); // 微調轉向，確保對齊十字路口
     }
-    
   }
-  
-  
+
   stop();
   delay(50);
   p_fw_v2(500);
@@ -1067,7 +1092,7 @@ void red_release()
   {
     /* code */
   }
-  
+
   while (true)
   {
     if ((IR_LL_read() == 1))
@@ -1106,16 +1131,15 @@ void orange_release()
   {
     if ((IR_L_read() == 1) && (IR_R_read() == 1) && (IR_M_read() == 1))
     {
-     break; // 任一感測器讀到黑線，停止循跡
+      break; // 任一感測器讀到黑線，停止循跡
     }
     else
     {
 
       motor(-30, -50); // 微調轉向，確保對齊十字路口
     }
-    
   }
-  
+
   stop();
   delay(50);
   p_fw_v2(550);
@@ -1173,19 +1197,18 @@ void green_realease()
   {
     if ((IR_L_read() == 1) && (IR_R_read() == 1) && (IR_M_read() == 1))
     {
-     break; // 任一感測器讀到黑線，停止循跡
+      break; // 任一感測器讀到黑線，停止循跡
     }
     else
     {
 
       motor(-30, -50); // 微調轉向，確保對齊十字路口
     }
-    
   }
-  
+
   stop();
   delay(50);
-  p_fw_v2(700);
+  p_fw_v2(750);
   stop();
   delay(300);
   release_object();
@@ -1219,6 +1242,30 @@ void green_realease()
   trail_to_cross();
   stop();
 }
+
+// --- 根據色彩一鍵釋放 ---
+void release_by_color()
+{
+  // 使用已儲存的偵測結果（由 color_detect() 事先設定）
+  if (detected_color == -1)
+  {
+    return;
+  }
+
+  if (detected_color == 1) // 玉米（紅）
+  {
+    green_realease();
+  }
+  else if (detected_color == 2) // 胡蘿蔔（橙）
+  {
+    orange_release();
+  }
+  else if (detected_color == 3) // 番茄（綠）
+  {
+    red_release();
+  }
+}
+
 // ===== 主程式 =====
 // setup()：初始化所有硬體，在上傳後執行一次
 // loop()：主控制迴圈，在 setup() 完成後反覆執行
@@ -1233,7 +1280,7 @@ void setup()
 
   // --- HuskyLens 初始化 ---
   // I2C 已在 oled_init() 中初始化，直接連線
-  // huskylens_init();
+  huskylens_init();
 
   // --- 伺服馬達定時器分配 ---
   // 重要！必須在伺服初始化前執行
@@ -1296,105 +1343,107 @@ void setup()
           // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
 
   //?=====================主程式開始=====================
-  // prepare_pickup();
-  // p_fw_v2(7600);
-  // stop();
+  prepare_pickup();
+  p_fw_v2(7600);
+  stop();
 
-  // while (IR_L_read() == 0)
-  // {
-  //   forward();
-  // }
-  // stop();
-  // delay(300);
-  // p_fw_v2(200);
-  // ninety_leftdegree_turn();
-  // //*==============回到線上準備前往卸貨區的十字入口============*
-  // trail_to_cross();
-  // p_fw_v2(400);
-  // ninety_leftdegree_turn();
-  // stop();
-  // //*==============到卸貨區的十字入口============*
-  // while (IR_LL_read() == 1)
-  // {
-  //   /* code */
-  // }
-  // while (true)
-  // {
-  //   if ((IR_LL_read() == 1))
-  //   {
-  //     p_fw_v2(400);
-  //     ninety_leftdegree_turn();
-  //     break; // 任一感測器讀到黑線，停止循跡
-  //   }
-  //   else
-  //   {
+  while (IR_L_read() == 0)
+  {
+    forward();
+  }
+  stop();
+  delay(300);
+  p_fw_v2(200);
+  ninety_leftdegree_turn();
+  //*==============回到線上準備前往卸貨區的十字入口============*
+  trail_to_cross();
+  p_fw_v2(400);
+  ninety_leftdegree_turn();
+  stop();
+  //*==============到卸貨區的十字入口============*
+  while (IR_LL_read() == 1)
+  {
+    /* code */
+  }
+  while (true)
+  {
+    if ((IR_LL_read() == 1))
+    {
+      p_fw_v2(400);
+      ninety_leftdegree_turn();
+      break; // 任一感測器讀到黑線，停止循跡
+    }
+    else
+    {
 
-  //     trail();
-  //   }
-  // }
-  // trail_to_cross();
-  // stop();
-  // delay(300);
+      trail();
+    }
+  }
+  trail_to_cross();
+  stop();
+  delay(300);
 
-  // turn_to_grab();
-  // //*==============到夾貨物的地方============*
-  // trail_to_cross();
-  // stop();
-  // delay(300);
-  // come_back();
-  // red_release();
-  // prepare_pickup();
-  // p_fw_v2(400);
-  // stop();
-  // delay(300);
+   turn_to_grab();
+  //*==============到夾貨物的地方============*
+  trail_to_cross();
+  stop();
+  delay(300);
+  come_back();
+  release_by_color();
+  prepare_pickup();
+  p_fw_v2(400);
+  stop();
+  delay(300);
 
-  // ninety_leftdegree_turn();
-  // stop();
+  ninety_leftdegree_turn();
+  stop();
 
-  // delay(300);
-  // p_bw_v2(400);
-  // stop();
-  // delay(300);
-  // trail_to_cross();
-  // stop();
-  // delay(200);
+  delay(300);
+  p_bw_v2(400);
+  stop();
+  delay(300);
+  trail_to_cross();
+  stop();
+  delay(200);
 
-  // p_fw_v2(100);
-  // stop();
-  // delay(300);
-  // pickup_object();
-  // stop();
-  // delay(300);
-  // ninety_leftdegree_turn();
-  // stop();
+  p_fw_v2(100);
+  stop();
+  delay(300);
+  detected_color = color_detect();
+  pickup_object();
+  
+  stop();
+  delay(300);
+  ninety_leftdegree_turn();
+  stop();
 
-  // trail_to_cross();
-  // stop();
-  // p_fw_v2(400);
-  // stop();
-  // delay(300);
-  // b_Right();
-  // delay(150);
-  // while (true)
-  // {
-  //   if (IR_RR_read() == 1)
-  //   {
-  //     break;
-  //   }
-  //   else
-  //   {
-  //     b_Right();
-  //   }
-  // }
-  // stop();
-  // delay(200);
-  // p_bw_v2(200);
-  // stop();
-  // delay(300);
-  // come_back();
-  // orange_release();
-  // stop();
-  // delay(300);
+  trail_to_cross();
+  stop();
+  p_fw_v2(400);
+  stop();
+  delay(300);
+  b_Right();
+  delay(150);
+  while (true)
+  {
+    if (IR_RR_read() == 1)
+    {
+      break;
+    }
+    else
+    {
+      b_Right();
+    }
+  }
+  stop();
+  delay(200);
+  p_bw_v2(200);
+  stop();
+  delay(300);
+  come_back();
+ release_by_color();
+  stop();
+  delay(300);
   prepare_pickup();
   stop();
   delay(300);
@@ -1428,7 +1477,9 @@ void setup()
   p_fw_v2(100);
   stop();
   delay(300);
+  detected_color = color_detect();
   pickup_object();
+  
   stop();
   delay(300);
   ninety_leftdegree_turn();
@@ -1443,7 +1494,7 @@ void setup()
   stop();
   delay(50);
   come_back();
-  green_realease();
+  release_by_color();
 
   //?=====================主程式結束=====================
 
