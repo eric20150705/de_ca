@@ -597,11 +597,9 @@ void arm_down_slow()
 {
   // 寫入 ARM_DOWN 角度，使手臂下降
   // 慢慢往下放
-  for (int angle = ARM_UP; angle >= ARM_DOWN; angle -= 2)
-  {
-    arm.write(angle);
-    delay(15);
-  }
+  arm.write(70);
+  delay(50);
+
 }
 
 void claw_open()
@@ -628,8 +626,8 @@ void pickup_object()
 
 void release_object()
 {
-  // 釋放物體的動作序列
-
+  arm_down_slow(); // 慢慢放下手臂
+  delay(200);
   claw_open(); // 張爪子
   delay(300);
 }
@@ -983,19 +981,7 @@ void turn_to_grab()
   pickup_object();
 
   //! 開始迴轉
-  b_Left();
-  delay(250);
-  while (true)
-  {
-    if (IR_L_read() == 1)
-    {
-      break;
-    }
-    else
-    {
-      motor(-25, 25); // 迴轉中，保持慢速
-    }
-  }
+  ninety_leftdegree_turn();
   stop();
   delay(300);
   p_bw_v2(400); // 迴轉後退一段距離，避免抓取物體時碰撞
@@ -1025,16 +1011,16 @@ void come_back()
   trail_to_cross();
   stop();
   delay(300);
-  p_fw_v2(200);
+  p_fw_v2(400);
   stop();
   delay(300);
-  ninety_leftdegree_turn();
-  stop();
-  delay(300);
+  
+  
+  
 }
 void red_release()
 {
-
+  ninety_leftdegree_turn();
   for (int i = 0; i < 1200; i++)
   {
     trail();
@@ -1047,14 +1033,30 @@ void red_release()
   delay(300);
   stop();
   delay(300);
-  p_fw_v2(200);
+  while (true)
+  {
+    if ((IR_L_read() == 1) && (IR_R_read() == 1) && (IR_M_read() == 1))
+    {
+     break; // 任一感測器讀到黑線，停止循跡
+    }
+    else
+    {
+
+      motor(-30, -50); // 微調轉向，確保對齊十字路口
+    }
+    
+  }
+  
+  
+  stop();
+  delay(50);
+  p_fw_v2(500);
   stop();
   delay(300);
-
   release_object();
   stop();
   delay(300);
-  p_bw_v2(50);
+  p_bw_v2(150);
   stop();
   delay(300);
   ninety_leftdegree_turn();
@@ -1065,6 +1067,7 @@ void red_release()
   {
     /* code */
   }
+  
   while (true)
   {
     if ((IR_LL_read() == 1))
@@ -1084,7 +1087,7 @@ void red_release()
 }
 void orange_release()
 {
-
+  ninety_leftdegree_turn();
   for (int i = 0; i < 2000; i++)
   {
     trail();
@@ -1092,20 +1095,42 @@ void orange_release()
   }
   stop();
   delay(300);
-  p_bw_v2(800);
+  p_bw_v2(600);
   motor(0, -40);
-  delay(300);
+  delay(100);
+  stop();
+  p_fw_v2(150);
   stop();
   delay(300);
-  p_fw_v2(200);
+  while (true)
+  {
+    if ((IR_L_read() == 1) && (IR_R_read() == 1) && (IR_M_read() == 1))
+    {
+     break; // 任一感測器讀到黑線，停止循跡
+    }
+    else
+    {
 
+      motor(-30, -50); // 微調轉向，確保對齊十字路口
+    }
+    
+  }
+  
+  stop();
+  delay(50);
+  p_fw_v2(550);
+  stop();
+  delay(300);
   release_object();
   stop();
   delay(300);
-  p_bw_v2(50);
+  p_bw_v2(450);
   stop();
   delay(300);
   ninety_leftdegree_turn();
+  p_fw_v2(200);
+  stop();
+  delay(300);
   trail_to_cross();
   stop();
   delay(300);
@@ -1132,7 +1157,7 @@ void orange_release()
 }
 void green_realease()
 {
-
+  ninety_leftdegree_turn();
   for (int i = 0; i < 2700; i++)
   {
     trail();
@@ -1142,15 +1167,31 @@ void green_realease()
   delay(300);
   p_bw_v2(800);
   motor(0, -40);
-  delay(300);
+  delay(100);
+  stop();
+  while (true)
+  {
+    if ((IR_L_read() == 1) && (IR_R_read() == 1) && (IR_M_read() == 1))
+    {
+     break; // 任一感測器讀到黑線，停止循跡
+    }
+    else
+    {
+
+      motor(-30, -50); // 微調轉向，確保對齊十字路口
+    }
+    
+  }
+  
+  stop();
+  delay(50);
+  p_fw_v2(700);
   stop();
   delay(300);
-  p_fw_v2(150);
-
   release_object();
   stop();
   delay(300);
-  p_bw_v2(50);
+  p_bw_v2(250);
   stop();
   delay(300);
   ninety_leftdegree_turn();
@@ -1255,108 +1296,109 @@ void setup()
           // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
 
   //?=====================主程式開始=====================
-  prepare_pickup();
-  p_fw_v2(7600);
-  stop();
+  // prepare_pickup();
+  // p_fw_v2(7600);
+  // stop();
 
-  while (IR_L_read() == 0)
-  {
-    forward();
-  }
+  // while (IR_L_read() == 0)
+  // {
+  //   forward();
+  // }
+  // stop();
+  // delay(300);
+  // p_fw_v2(200);
+  // ninety_leftdegree_turn();
+  // //*==============回到線上準備前往卸貨區的十字入口============*
+  // trail_to_cross();
+  // p_fw_v2(400);
+  // ninety_leftdegree_turn();
+  // stop();
+  // //*==============到卸貨區的十字入口============*
+  // while (IR_LL_read() == 1)
+  // {
+  //   /* code */
+  // }
+  // while (true)
+  // {
+  //   if ((IR_LL_read() == 1))
+  //   {
+  //     p_fw_v2(400);
+  //     ninety_leftdegree_turn();
+  //     break; // 任一感測器讀到黑線，停止循跡
+  //   }
+  //   else
+  //   {
+
+  //     trail();
+  //   }
+  // }
+  // trail_to_cross();
+  // stop();
+  // delay(300);
+
+  // turn_to_grab();
+  // //*==============到夾貨物的地方============*
+  // trail_to_cross();
+  // stop();
+  // delay(300);
+  // come_back();
+  // red_release();
+  // prepare_pickup();
+  // p_fw_v2(400);
+  // stop();
+  // delay(300);
+
+  // ninety_leftdegree_turn();
+  // stop();
+
+  // delay(300);
+  // p_bw_v2(400);
+  // stop();
+  // delay(300);
+  // trail_to_cross();
+  // stop();
+  // delay(200);
+
+  // p_fw_v2(100);
+  // stop();
+  // delay(300);
+  // pickup_object();
+  // stop();
+  // delay(300);
+  // ninety_leftdegree_turn();
+  // stop();
+
+  // trail_to_cross();
+  // stop();
+  // p_fw_v2(400);
+  // stop();
+  // delay(300);
+  // b_Right();
+  // delay(150);
+  // while (true)
+  // {
+  //   if (IR_RR_read() == 1)
+  //   {
+  //     break;
+  //   }
+  //   else
+  //   {
+  //     b_Right();
+  //   }
+  // }
+  // stop();
+  // delay(200);
+  // p_bw_v2(200);
+  // stop();
+  // delay(300);
+  // come_back();
+  // orange_release();
+  // stop();
+  // delay(300);
+  prepare_pickup();
   stop();
   delay(300);
-  p_fw_v2(200);
-  ninety_leftdegree_turn();
-  //*==============回到線上準備前往卸貨區的十字入口============*
-  trail_to_cross();
   p_fw_v2(400);
-  ninety_leftdegree_turn();
-  stop();
-  //*==============到卸貨區的十字入口============*
-  while (IR_LL_read() == 1)
-  {
-    /* code */
-  }
-  while (true)
-  {
-    if ((IR_LL_read() == 1))
-    {
-      p_fw_v2(400);
-      ninety_leftdegree_turn();
-      break; // 任一感測器讀到黑線，停止循跡
-    }
-    else
-    {
-
-      trail();
-    }
-  }
-  trail_to_cross();
-  stop();
-  delay(300);
-
-  turn_to_grab();
-  //*==============到夾貨物的地方============*
-  trail_to_cross();
-  stop();
-  delay(300);
-  come_back();
-  stop();
-  delay(300);
-  red_release();
-  prepare_pickup();
-  p_fw_v2(400);
-  stop();
-  delay(300);
-
-  ninety_leftdegree_turn();
-  stop();
-
-  delay(300);
-  p_bw_v2(400);
-  stop();
-  delay(300);
-  trail_to_cross();
-  stop();
-  delay(200);
-
-  p_fw_v2(100);
-  stop();
-  delay(300);
-  pickup_object();
-  stop();
-  delay(300);
-  ninety_leftdegree_turn();
-  stop();
-
-  trail_to_cross();
-  stop();
-  p_fw_v2(300);
-  stop();
-  delay(300);
-  b_Right();
-  delay(150);
-  while (true)
-  {
-    if (IR_R_read() == 1)
-    {
-      break;
-    }
-    else
-    {
-      b_Right();
-    }
-  }
-  stop();
-  delay(50);
-  come_back();
-  orange_release();
-  stop();
-  delay(300);
-  prepare_pickup();
-  stop();
-  delay(300);
-  p_fw_v2(300);
   stop();
   delay(300);
   b_Right();
@@ -1394,7 +1436,7 @@ void setup()
 
   trail_to_cross();
   stop();
-  p_fw_v2(300);
+  p_fw_v2(400);
   stop();
   delay(500);
   ninety_leftdegree_turn();
