@@ -1006,7 +1006,7 @@ void turn_to_grab()
 void ninety_leftdegree_turn()
 {
   b_Left();
-  delay(150);
+  delay(200);
   while (true)
   {
     if (IR_LL_read() == 1)
@@ -1097,7 +1097,7 @@ void orange_release()
 void green_realease()
 {
 
-  for (int i = 0; i < 3000; i++)
+  for (int i = 0; i < 2700; i++)
   {
     trail();
     delay(1);
@@ -1217,13 +1217,19 @@ void setup()
   trail_to_cross();
   p_fw_v2(400);
   ninety_leftdegree_turn();
+  stop();
+  while (IR_LL_read() == 1)
+  {
+    /* code */
+  }
+
   //*==============到卸貨區的十字入口============*
   while (true)
   {
-
-    if ((IR_LL_read() == 1) )
+    if ((IR_LL_read() == 1))
     {
-
+      p_fw_v2(400);
+      ninety_leftdegree_turn();
       break; // 任一感測器讀到黑線，停止循跡
     }
     else
@@ -1231,17 +1237,11 @@ void setup()
 
       trail();
     }
-
   }
-  ninety_leftdegree_turn();
-
-    
-  stop();
-  delay(300);
   trail_to_cross();
   stop();
   delay(300);
-  
+
   turn_to_grab();
   //*==============到夾貨物的地方============*
   trail_to_cross();
