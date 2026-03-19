@@ -1534,6 +1534,7 @@ void setup()
 
   //?=====================主程式開始=====================
   //*==============第一顆開始============*
+  int color = 0;
   prepare_pickup();
   int look = 0;
   while (true)
@@ -1555,33 +1556,35 @@ void setup()
     }
   }
   //*==============到第一入口============*
-  p_fw_v2(200);
-  p_right(30);
+  p_right(45);
   while (true)
   {
-    if (IR_M_read() == 1)
+    if (IR_M_read() == 1 || IR_L_read() == 1 || IR_R_read() == 1)
     {
       stop();
       break;
     }
-    else
-    {
-      b_Right();
-    }
+    b_Right();
   }
+  prepare_pickup();
   while (true)
   {
-    if (IR_L_read() == 1 && IR_R_read() == 1)
+    if (IR_M_read() == 1 || IR_L_read() == 1 || IR_R_read() == 1)
     {
       stop();
       break;
     }
-    else
-    {
-      trail();
-    }
+    b_Right();
   }
-  int color = 0;
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      stop();
+      break;
+    }
+    trail();
+  }
   if (color_detect() == 1)
   {
     color = 1; // 玉米
@@ -1595,15 +1598,26 @@ void setup()
     color = 3; // 羅蔔
   }
   pickup_object();
+  //*到第三顆的路口
   p_bw_v2(200);
   p_left(50);
   while (true)
   {
-    b_Left();
-    if ((IR_M_read() == 1 || IR_L_read() == 1 || IR_R_read() == 1))
+    if (IR_L_read() == 1 || IR_M_read() == 1 || IR_R_read() == 1)
     {
+      stop();
       break;
     }
+    b_Left();
+  }
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      stop();
+      break;
+    }
+    trail();
   }
   while (true)
   {
