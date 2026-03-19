@@ -1544,7 +1544,7 @@ void setup()
       p_fw_v2(150);
       look++;
 
-      if (look == 3)
+      if (look == 2)
       {
         stop();
         break;
@@ -1556,7 +1556,7 @@ void setup()
     }
   }
   //*==============到第一入口============*
-  p_right(45);
+  p_left(45);
   while (true)
   {
     if (IR_M_read() == 1 || IR_L_read() == 1 || IR_R_read() == 1)
@@ -1564,7 +1564,7 @@ void setup()
       stop();
       break;
     }
-    b_Right();
+    b_Left();
   }
   prepare_pickup();
   while (true)
@@ -1609,6 +1609,15 @@ void setup()
       break;
     }
     b_Left();
+  }
+  while (true)
+  {
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      stop();
+      break;
+    }
+    trail();
   }
   while (true)
   {
