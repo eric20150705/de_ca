@@ -1061,6 +1061,24 @@ void red_release()
   trail_to_cross();
   stop();
   delay(300);
+  while (IR_LL_read() == 1)
+  {
+    /* code */
+  }
+  while (true)
+  {
+    if ((IR_LL_read() == 1))
+    {
+      p_fw_v2(400);
+      ninety_leftdegree_turn();
+      break; // 任一感測器讀到黑線，停止循跡
+    }
+    else
+    {
+
+      trail();
+    }
+  }
   trail_to_cross();
   stop();
 }
@@ -1091,6 +1109,24 @@ void orange_release()
   trail_to_cross();
   stop();
   delay(300);
+  while (IR_LL_read() == 1)
+  {
+    /* code */
+  }
+  while (true)
+  {
+    if ((IR_LL_read() == 1))
+    {
+      p_fw_v2(400);
+      ninety_leftdegree_turn();
+      break; // 任一感測器讀到黑線，停止循跡
+    }
+    else
+    {
+
+      trail();
+    }
+  }
   trail_to_cross();
   stop();
 }
@@ -1121,6 +1157,24 @@ void green_realease()
   trail_to_cross();
   stop();
   delay(300);
+  while (IR_LL_read() == 1)
+  {
+    /* code */
+  }
+  while (true)
+  {
+    if ((IR_LL_read() == 1))
+    {
+      p_fw_v2(400);
+      ninety_leftdegree_turn();
+      break; // 任一感測器讀到黑線，停止循跡
+    }
+    else
+    {
+
+      trail();
+    }
+  }
   trail_to_cross();
   stop();
 }
@@ -1218,12 +1272,11 @@ void setup()
   p_fw_v2(400);
   ninety_leftdegree_turn();
   stop();
+  //*==============到卸貨區的十字入口============*
   while (IR_LL_read() == 1)
   {
     /* code */
   }
-
-  //*==============到卸貨區的十字入口============*
   while (true)
   {
     if ((IR_LL_read() == 1))
