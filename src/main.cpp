@@ -74,7 +74,7 @@ int p_left_dis = 0;
 #define ARM_DOWN 0          // 手臂下降角度
 #define CLAW_OPEN 80        // 爪子開啟角度（夾不住物體）
 #define CLAW_OPEN_LITTLE 60 // 爪子微開角度（夾住物體但不太緊）
-#define CLAW_CLOSE 10       // 爪子關閉角度（夾住物體）
+#define CLAW_CLOSE 6        // 爪子關閉角度（夾住物體）
 #define CAMERA_FRONT 90     // 攝像頭往前看（中心位置）
 #define CAMERA_LEFT 170     // 攝像頭往左看（最大角度）
 #define CAMERA_RIGHT 0      // 攝像頭往右看（最小角度）
@@ -324,19 +324,19 @@ int color_detect()
     huskylens.request();
     if (huskylens.countBlocks() > 0)
     {
-      if (huskylens.countBlocks(2) > 0)
+      if (huskylens.countBlocks(1) > 0)
       {
-        target = 1; // 胡蘿蔔
+        target = 1; // 玉米
         return target;
       }
-      else if (huskylens.countBlocks(1) > 0)
+      else if (huskylens.countBlocks(2) > 0)
       {
-        target = 0; // 番茄
+        target = 2; // 胡蘿蔔
         return target;
       }
       else if (huskylens.countBlocks(3) > 0)
       {
-        target = 2; // 玉米
+        target = 3; // 番茄
         return target;
       }
     }
@@ -712,6 +712,41 @@ void orange_round()
   p_right(65);
   p_bw_v2(100);
   p_left(10);
+  arm_down_little();
+  stop();
+  release_object_little();
+  p_bw_v2(200);
+  stop();
+  delay(500);
+  while (true)
+  {
+    if (IR_L_read() == 1)
+    {
+      stop();
+      break;
+    }
+    b_Left();
+  }
+  while (true)
+  {
+    trail();
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      break;
+    }
+  }
+  stop();
+  p_fw_v2(300);
+  p_left(60);
+  while (true)
+  {
+    b_Left();
+    if (IR_M_read() == 1)
+    {
+      stop();
+      break;
+    }
+  }
 }
 void red_round()
 {
@@ -724,6 +759,31 @@ void red_round()
   p_right(65);
   p_bw_v2(100);
   p_left(10);
+  arm_down_little();
+  stop();
+  release_object_little();
+  p_bw_v2(200);
+  stop();
+  delay(500);
+  while (true)
+  {
+    if (IR_L_read() == 1 || IR_R_read() == 1 || IR_M_read() == 1)
+    {
+      stop();
+      break;
+    }
+    b_Right();
+  }
+  while (true)
+  {
+    if (IR_L_read() == 1 && IR_R_read() == 1)
+    {
+      stop();
+      break;
+    }
+    trail();
+  }
+  p_fw_v2(300);
 }
 void yellow_round()
 {
@@ -747,6 +807,41 @@ void yellow_round()
   p_left(10);
   delay(500);
   stop();
+  arm_down_little();
+  stop();
+  release_object_little();
+  p_bw_v2(200);
+  stop();
+  delay(500);
+  while (true)
+  {
+    if (IR_L_read() == 1)
+    {
+      stop();
+      break;
+    }
+    b_Left();
+  }
+  while (true)
+  {
+    trail();
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    {
+      break;
+    }
+  }
+  stop();
+  p_fw_v2(300);
+  p_left(60);
+  while (true)
+  {
+    b_Left();
+    if (IR_M_read() == 1 || IR_L_read() == 1 || IR_R_read() == 1)
+    {
+      stop();
+      break;
+    }
+  }
 }
 
 // ============ 伺服馬達控制函式 ============
@@ -1479,6 +1574,19 @@ void setup()
       trail();
     }
   }
+  int color = 0;
+  if (color_detect() == 1)
+  {
+    color = 1; // 玉米
+  }
+  else if (color_detect() == 2)
+  {
+    color = 2; // 番茄
+  }
+  else if (color_detect() == 3)
+  {
+    color = 3; // 羅蔔
+  }
   pickup_object();
   p_bw_v2(200);
   p_left(50);
@@ -1506,9 +1614,10 @@ void setup()
     }
   }
   stop();
+  p_right(10);
   delay(50);
   // 入口2準備切
-  p_fw_v2(500);
+  p_fw_v2(1200);
   while (true)
   {
     if ((IR_M_read() == 1))
@@ -1544,44 +1653,19 @@ void setup()
     }
   }
   stop();
-  yellow_round();
-  arm_down_little();
-  stop();
-  release_object_little();
-  p_bw_v2(200);
-  stop();
-  delay(500);
+  if (color == 1)
+  {
+    yellow_round();
+  }
+  else if (color == 2)
+  {
+    red_round();
+  }
+  else if (color == 3)
+  {
+    orange_round();
+  }
   //*==============第二顆============*
-  while (true)
-  {
-    if (IR_L_read() == 1)
-    {
-      stop();
-      break;
-    }
-    b_Left();
-  }
-  while (true)
-  {
-    trail();
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
-    {
-      break;
-    }
-  }
-  stop();
-  p_fw_v2(300);
-  p_left(60);
-  while (true)
-  {
-    b_Left();
-    if (IR_M_read() == 1)
-    {
-      stop();
-      break;
-    }
-  }
-
   count = 0;
   while (true)
   {
@@ -1639,9 +1723,21 @@ void setup()
     }
     trail();
   }
+  if (color_detect() == 1)
+  {
+    color = 1; // 玉米
+  }
+  else if (color_detect() == 2)
+  {
+    color = 2; // 番茄
+  }
+  else if (color_detect() == 3)
+  {
+    color = 3; // 羅蔔
+  }
   pickup_object();
   p_bw_v2(200);
-  p_right(90);
+  p_right(100);
   while (true)
   {
     if (IR_L_read() == 1 || IR_M_read() == 1 || IR_L_read() == 1)
@@ -1690,42 +1786,19 @@ void setup()
   }
   forward();
   delay(100);
-  red_round();
-  arm_down_little();
-  stop();
-  release_object_little();
-  p_bw_v2(200);
-  stop();
-  delay(500);
+  if (color == 1)
+  {
+    yellow_round();
+  }
+  else if (color == 2)
+  {
+    red_round();
+  }
+  else if (color == 3)
+  {
+    orange_round();
+  }
   //*==============第三顆============*
-  while (true)
-  {
-    b_Right();
-    if (IR_M_read() == 1 || IR_L_read() == 1 || IR_R_read() == 1)
-    {
-      stop();
-      break;
-    }
-  }
-  while (true)
-  {
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
-    {
-      stop();
-      break;
-    }
-    trail();
-  }
-  p_fw_v2(300);
-  while (true)
-  {
-    if ((IR_M_read() == 1) || (IR_L_read() == 1) || (IR_R_read() == 1))
-    {
-      stop();
-      break;
-    }
-    b_Left();
-  }
   while (true)
   {
     if ((IR_R_read() == 1) && (IR_L_read() == 1))
@@ -1765,8 +1838,20 @@ void setup()
     }
     trail();
   }
-  //*到第三顆的路口
+  if (color_detect() == 1)
+  {
+    color = 1; // 玉米
+  }
+  else if (color_detect() == 2)
+  {
+    color = 2; // 番茄
+  }
+  else if (color_detect() == 3)
+  {
+    color = 3; // 羅蔔
+  }
   pickup_object();
+  //*到第三顆的路口
   p_bw_v2(200);
   p_left(50);
   while (true)
@@ -1798,7 +1883,18 @@ void setup()
     }
     b_Left();
   }
-  orange_round();
+  if (color == 1)
+  {
+    yellow_round();
+  }
+  else if (color == 2)
+  {
+    red_round();
+  }
+  else if (color == 3)
+  {
+    orange_round();
+  }
   arm_down_little();
   stop();
   release_object_little();
