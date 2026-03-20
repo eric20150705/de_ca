@@ -1856,7 +1856,11 @@ void setup()
   pickup_object();
   //*到第三顆的路口
   p_bw_v2(200);
+  stop();
+  delay(500);
   p_left(50);
+  stop();
+  delay(500);
   while (true)
   {
     if (IR_L_read() == 1 || IR_M_read() == 1 || IR_R_read() == 1)
