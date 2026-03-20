@@ -708,7 +708,7 @@ void orange_round()
     trail();
   }
   backward_slow();
-  delay(100);
+  delay(400);
   p_right(65);
   p_bw_v2(100);
   p_left(10);
@@ -755,7 +755,7 @@ void red_round()
     trail();
   }
   backward_slow();
-  delay(100);
+  delay(400);
   p_right(65);
   p_bw_v2(100);
   p_left(10);
@@ -801,7 +801,7 @@ void yellow_round()
     trail();
   }
   backward_slow();
-  delay(100);
+  delay(400);
   p_left(55);
   p_bw_v2(100);
   p_left(10);
@@ -1829,6 +1829,9 @@ void setup()
     }
     b_Left();
   }
+  forward();
+  delay(50);
+  stop();
   while (true)
   {
     if ((IR_R_read() == 1) && (IR_L_read() == 1))
@@ -1901,6 +1904,21 @@ void setup()
   p_bw_v2(200);
   stop();
   delay(500);
+  p_fw_v2(300);
+  while (true)
+  {
+    if (IR_L_read() == 1 || IR_M_read() == 1 || IR_R_read() == 1)
+    {
+      stop();
+      break;
+    }
+    b_Right();
+  }
+  for (int i = 0; i < 6500; i++)
+  {
+    trail();
+  }
+  stop();
   //?=====================主程式結束=====================
   //! 以下不需要更動
   //* OLED：持續顯示紅外線狀態和編碼器值
