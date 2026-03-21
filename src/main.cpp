@@ -1085,17 +1085,15 @@ void red_release()
   delay(300);
   ninety_leftdegree_turn();
   trail_to_cross();
-  while (true)
+  p_fw_v2(100);
+  stop();
+  delay(50);
+  for (int i = 0; i < 200; i++)
   {
-    if ((IR_M_read() == 0))
-    {
-      break;
-    }
-    m_Right();
+    trail();
+    delay(1);
   }
 
-  stop();
-  delay(300);
   while (IR_LL_read() == 1)
   {
     /* code */
@@ -1169,14 +1167,15 @@ void orange_release()
   stop();
   delay(300);
   trail_to_cross();
-
+  p_fw_v2(100);
+  stop();
+  delay(50);
   for (int i = 0; i < 200; i++)
   {
     trail();
     delay(1);
   }
-  stop();
-  delay(300);
+
   while (IR_LL_read() == 1)
   {
     /* code */
@@ -1246,8 +1245,9 @@ void green_realease()
   stop();
   delay(250);
   trail_to_cross();
+  p_fw_v2(100);
   stop();
-  delay(300);
+  delay(50);
   for (int i = 0; i < 200; i++)
   {
     trail();
@@ -1379,49 +1379,50 @@ void setup()
           // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
 
   //?=====================主程式開始=====================
-  // prepare_pickup();
-  // p_fw_v2(7800);
-  // stop();
+  prepare_pickup();
+  p_fw_v2(7800);
+  stop();
 
-  // while (IR_L_read() == 0)
-  // {
-  //   forward();
-  // }
-  // stop();
+  while (IR_L_read() == 0)
+  {
+    forward();
+  }
+  stop();
 
-  // p_fw_v2(300);
-  // stop();
-  // delay(300);
-  // ninety_leftdegree_turn();
-  // //*==============回到線上準備前往卸貨區的十字入口============*
-  // trail_to_cross();
-  // p_fw_v2(400);
-  // ninety_leftdegree_turn();
-  // stop();
-  // //*==============到卸貨區的十字入口============*
-  // while (IR_LL_read() == 1)
-  // {
-  //   /* code */
-  // }
-  // while (true)
-  // {
-  //   if ((IR_LL_read() == 1))
-  //   {
-  //     p_fw_v2(400);
-  //     ninety_leftdegree_turn();
-  //     break; // 任一感測器讀到黑線，停止循跡
-  //   }
-  //   else
-  //   {
+  p_fw_v2(300);
+  stop();
+  delay(300);
+  ninety_leftdegree_turn();
+  //*==============回到線上準備前往卸貨區的十字入口============*
+  trail_to_cross();
+  p_fw_v2(400);
+  ninety_leftdegree_turn();
+  stop();
+  //*==============到卸貨區的十字入口============*
+  while (IR_LL_read() == 1)
+  {
+    /* code */
+  }
+  while (true)
+  {
+    if ((IR_LL_read() == 1))
+    {
+      p_fw_v2(400);
+      ninety_leftdegree_turn();
+      break; // 任一感測器讀到黑線，停止循跡
+    }
+    else
+    {
 
-  //     trail();
-  //   }
-  // }
-  // trail_to_cross();
-  // stop();
+      trail();
+    }
+  }
+  trail_to_cross();
+  stop();
   p_fw_v2(200);
   stop();
   delay(100);
+  //! alpha grab
 
   turn_to_grab();
   stop();
@@ -1449,6 +1450,8 @@ void setup()
   }
   come_back();
   release_by_color();
+  //! beta grab
+
   prepare_pickup();
   p_fw_v2(300);
   stop();
@@ -1506,6 +1509,8 @@ void setup()
   release_by_color();
   stop();
   delay(300);
+  //! gama grab
+
   prepare_pickup();
   stop();
   delay(300);
