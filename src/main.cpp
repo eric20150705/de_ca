@@ -1738,17 +1738,20 @@ void setup()
   pickup_object();
   p_bw_v2(200);
   p_right(100);
+  stop();
+  delay(50);
+  p_fw_v2(700);
+  // 切去圓環
   while (true)
   {
-    if (IR_L_read() == 1 || IR_M_read() == 1 || IR_L_read() == 1)
+    if (IR_L_read() == 1 || IR_R_read() == 1 || IR_M_read() == 1)
     {
       stop();
       break;
     }
     forward();
   }
-  p_fw_v2(300);
-  // 切去圓環
+  p_fw_v2(200);
   while (true)
   {
     if (IR_L_read() == 1 || IR_M_read() == 1 || IR_L_read() == 1)
