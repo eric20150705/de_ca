@@ -1151,18 +1151,18 @@ void orange_release()
 
   stop();
   delay(50);
-  p_fw_v2(600);
+  p_fw_v2(650);
   stop();
-  delay(300);
+  delay(320);
   release_object();
   stop();
   delay(300);
-  p_bw_v2(200);
+  p_bw_v2(300);
   stop();
   delay(300);
   ninety_leftdegree_turn();
   stop();
-  delay(200);
+  delay(300);
   p_fw_v2(200);
   stop();
   delay(300);
@@ -1216,6 +1216,7 @@ void green_realease()
   motor(0, -40);
   delay(150);
   stop();
+  delay(50);
   while (true)
   {
 
@@ -1234,13 +1235,13 @@ void green_realease()
   delay(50);
   p_fw_v2(600);
   stop();
-  delay(300);
+  delay(350);
   release_object();
   stop();
   delay(300);
   p_bw_v2(300);
   stop();
-  delay(300);
+  delay(325);
   ninety_leftdegree_turn();
   stop();
   delay(250);
@@ -1422,95 +1423,102 @@ void setup()
   p_fw_v2(200);
   stop();
   delay(100);
-  //! alpha grab
+  // //! alpha grab
 
-  turn_to_grab();
-  stop();
-  delay(300);
-  while (true)
-  {
-    if ((IR_L_read() == 1))
-    {
-      break;
-    }
-    m_Right();
-  }
-  //*==============到夾貨物的地方============*
-  trail_to_cross();
-  p_fw_v2(300);
-  stop();
-  delay(300);
-  while (true)
-  {
-    if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
-    {
-      break;
-    }
-    m_Left();
-  }
-  come_back();
-  release_by_color();
-  //! beta grab
+  // turn_to_grab();
+  // stop();
+  // delay(300);
+  // while (true)
+  // {
+  //   if ((IR_L_read() == 1))
+  //   {
+  //     break;
+  //   }
+  //   m_Right();
+  // }
+  // //*==============到夾貨物的地方============*
+  // trail_to_cross();
+  // p_fw_v2(300);
+  // stop();
+  // delay(300);
+  // while (true)
+  // {
+  //   if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
+  //   {
+  //     break;
+  //   }
+  //   m_Left();
+  // }
+  // come_back();
+  // release_by_color();
+  // stop();
+  // delay(100);
 
-  prepare_pickup();
-  p_fw_v2(300);
-  stop();
-  delay(300);
+  // //! beta grab
+  // p_fw_v2(300);
+  // stop();
+  // delay(300);
+  // prepare_pickup();
+  // stop();
+  // delay(300);
+  
+  // ninety_leftdegree_turn();
+  // stop();
 
-  ninety_leftdegree_turn();
-  stop();
+  // delay(300);
+  // p_bw_v2(400);
+  // stop();
+  // delay(300);
+  // trail_to_cross();
+  // stop();
+  // delay(200);
 
-  delay(300);
-  p_bw_v2(400);
-  stop();
-  delay(300);
-  trail_to_cross();
-  stop();
-  delay(200);
+  // p_fw_v2(100);
+  // stop();
+  // delay(300);
+  // detected_color = color_detect();
+  // pickup_object();
 
-  p_fw_v2(100);
-  stop();
-  delay(300);
-  detected_color = color_detect();
-  pickup_object();
+  // stop();
+  // delay(300);
+  // p_bw_v2(200);
+  // stop();
+  // delay(300);
+  // ninety_leftdegree_turn();
+  // stop();
 
-  stop();
-  delay(300);
-  p_bw_v2(200);
-  stop();
-  delay(300);
-  ninety_leftdegree_turn();
-  stop();
-
-  trail_to_cross();
-  stop();
-  p_fw_v2(400);
-  stop();
-  delay(300);
-  b_Right();
-  delay(150);
-  while (true)
-  {
-    if (IR_RR_read() == 1)
-    {
-      break;
-    }
-    else
-    {
-      b_Right();
-    }
-  }
-  stop();
-  delay(200);
-  p_bw_v2(200);
-  stop();
-  delay(300);
-  come_back();
-  release_by_color();
-  stop();
-  delay(300);
+  // trail_to_cross();
+  // stop();
+  // p_fw_v2(400);
+  // stop();
+  // delay(300);
+  // b_Right();
+  // delay(150);
+  // while (true)
+  // {
+  //   if (IR_RR_read() == 1)
+  //   {
+  //     break;
+  //   }
+  //   else
+  //   {
+  //     b_Right();
+  //   }
+  // }
+  // stop();
+  // delay(200);
+  // p_bw_v2(200);
+  // stop();
+  // delay(300);
+  // come_back();
+  // release_by_color();
+  // stop();
+  // delay(300);
   //! gama grab
-
+  p_fw_v2(00);
+  stop();
+  delay(
+    00);
   prepare_pickup();
   stop();
   delay(300);
