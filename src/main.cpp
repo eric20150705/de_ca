@@ -1569,15 +1569,6 @@ void setup()
   prepare_pickup();
   while (true)
   {
-    if (IR_M_read() == 1 || IR_L_read() == 1 || IR_R_read() == 1)
-    {
-      stop();
-      break;
-    }
-    b_Right();
-  }
-  while (true)
-  {
     if ((IR_R_read() == 1) && (IR_L_read() == 1))
     {
       stop();
@@ -1600,7 +1591,7 @@ void setup()
   pickup_object();
   //*到第三顆的路口
   p_bw_v2(200);
-  p_left(50);
+  p_right(50);
   while (true)
   {
     if (IR_L_read() == 1 || IR_M_read() == 1 || IR_R_read() == 1)
@@ -1608,7 +1599,7 @@ void setup()
       stop();
       break;
     }
-    b_Left();
+    b_Right();
   }
   while (true)
   {
