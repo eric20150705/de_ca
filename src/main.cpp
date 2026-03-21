@@ -1601,14 +1601,29 @@ void setup()
     }
     b_Right();
   }
+  stop();
+  p_right(10);
+  delay(50);
+  // 入口2準備切
+  p_fw_v2(1200);
   while (true)
   {
-    if ((IR_R_read() == 1) && (IR_L_read() == 1))
+    if ((IR_M_read() == 1))
+    {
+      stop();
+      p_fw_v2(200);
+      break;
+    }
+    forward();
+  }
+  while (true)
+  {
+    if ((IR_M_read() == 1) || (IR_L_read() == 1) || (IR_R_read() == 1))
     {
       stop();
       break;
     }
-    trail();
+    b_Left();
   }
   while (true)
   {
@@ -1621,11 +1636,12 @@ void setup()
   }
   while (true)
   {
-    if (IR_L_read() == 1 && IR_R_read() == 1)
+    if ((IR_R_read() == 1) && (IR_L_read() == 1))
     {
       stop();
       break;
     }
+    trail();
   }
   stop();
   if (color == 1)
