@@ -1,1588 +1,2771 @@
-// ===== ESP32 智慧小車主程式 =====
-// 功能：控制雙馬達、伺服馬達、紅外線陣列、編碼器、OLED 顯示等
-// 編譯：pio run -t upload
-// 監控：pio device monitor (9600 baud)
+#include <Arduino.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Preferences.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7735.h>
+#include <Adafruit_SSD1306.h>
+#include <Adafruit_PWMServoDriver.h>
+#include <DHT.h>
+#include <math.h>
+#include <string.h>
 
-#include <Arduino.h>          // Arduino 核心庫（digitalWrite, analogRead 等）
-#include <ESP32Encoder.h>     // ESP32 編碼器庫，用於讀取馬達反饋
-#include <ESP32Servo.h>       // ESP32 伺服馬達庫，用於控制 SG90
-#include <Wire.h>             // I2C 通訊庫，用於 OLED 顯示器
-#include <Adafruit_GFX.h>     // Adafruit 圖形庫，提供 OLED 繪圖功能
-#include <Adafruit_SSD1306.h> // Adafruit SSD1306 OLED 驅動庫
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wreturn-type"
-#pragma GCC diagnostic ignored "-Wunused-variable"
-#include <HUSKYLENS.h> // HuskyLens AI 視覺識別模組
-#pragma GCC diagnostic pop
-#include <esp32-hal-ledc.h> // ESP32 LEDC PWM 驅動庫，用於馬達 PWM 控制
-
-// ===== 編碼器物件 =====
-// 讀取左右馬達的旋轉計數，用於距離反饋控制
-ESP32Encoder leftEncoder;  // 左馬達編碼器
-ESP32Encoder rightEncoder; // 右馬達編碼器
-
-// ===== 伺服馬達物件 =====
-// ESP32Servo 提供硬體 PWM 控制，精確控制角度（0~180°）
-Servo arm;    // 手臂伺服馬達（負責上升/下降）
-Servo claw;   // 爪子伺服馬達（負責開啟/關閉）
-Servo camera; // 攝像頭伺服馬達（控制視角方向）
-
-// ===== OLED (SSD1306) 顯示器 =====
-// 用於實時顯示紅外線狀態、編碼器計數、系統狀態等
-#define OLED_WIDTH 128                                                // OLED 螢幕寬度（像素）
-#define OLED_HEIGHT 64                                                // OLED 螢幕高度（像素）
-#define OLED_RESET -1                                                 // 復位腳位（-1 表示無硬體復位腳位）
-#define OLED_ADDR 0x3C                                                // OLED I2C 地址（SSD1306 標準地址）
-#define OLED_SDA 21                                                   // I2C 資料線（SDA）腳位
-#define OLED_SCL 22                                                   // I2C 時鐘線（SCL）腳位
-Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET); // OLED 物件
-bool oled_ready = false;                                              // OLED 初始化標誌位
-
-// ===== HuskyLens AI 視覺模組 =====
-// 使用 I2C 與 OLED 共用腳位（SDA=21, SCL=22），位址不衝突（HuskyLens=0x32, OLED=0x3C）
-HUSKYLENS huskylens; // HuskyLens 物件
-
-int p_left_dis = 0;
-int detected_color = -1; // 存儲顏色偵測結果：1=紅/2=橙/3=綠，-1=未偵測
-
-// ===== 伺服馬達腳位定義 =====
-// 使用 ESP32 的 GPIO 腳位連接 SG90 伺服馬達（PWM 控制）
-#define ARM_PIN 14    // 手臂伺服馬達訊號腳位
-#define CLAW_PIN 15   // 爪子伺服馬達訊號腳位
-#define CAMERA_PIN 25 // 攝像頭伺服馬達訊號腳位
-
-// ===== 伺服馬達角度設定 =====
-// SG90 伺服馬達角度範圍 0~180°，根據機械結構調整以下角度
-#define ARM_UP 90       // 手臂升起角度（0° = 最低，180° = 最高）
-#define ARM_DOWN 0      // 手臂下降角度
-#define CLAW_OPEN 80    // 爪子開啟角度（夾不住物體）
-#define CLAW_CLOSE 0    // 爪子關閉角度（夾住物體）
-#define CAMERA_FRONT 90 // 攝像頭往前看（中心位置）
-#define CAMERA_LEFT 170 // 攝像頭往左看（最大角度）
-#define CAMERA_RIGHT 0  // 攝像頭往右看（最小角度）
-
-// ===== 編碼器腳位定義 =====
-// 編碼器：計數輪子轉動的感測器
-// 輸出 A 相和 B 相訊號，ESP32 透過相位差計算旋轉方向
-#define LEFT_ENCODER_A 18  // 左馬達編碼器 A 相（正交解碼）
-#define LEFT_ENCODER_B 19  // 左馬達編碼器 B 相
-#define RIGHT_ENCODER_A 23 // 右馬達編碼器 A 相
-#define RIGHT_ENCODER_B 5  // 右馬達編碼器 B 相
-
-// ===== 腳位定義 =====
-// 紅外線感測器：5 路陣列，用於循跡和邊界檢測
-// 原理：紅外線照射後反射，黑線反射弱、白地反射強
-#define IR_LL_PIN 39 // 最左側紅外線（GPIO39）
-#define IR_L_PIN 32  // 左側紅外線（GPIO32）
-#define IR_M_PIN 33  // 中間紅外線（GPIO33）
-#define IR_R_PIN 34  // 右側紅外線（GPIO34）
-#define IR_RR_PIN 35 // 最右側紅外線（GPIO35）
-
-// 馬達控制腳位：每個馬達有正轉和反轉兩個腳位
-#define MOTOR_L_FWD 27 // 左馬達正轉（GPIO27）
-#define MOTOR_L_BWD 13 // 左馬達反轉（GPIO13）
-#define MOTOR_R_FWD 2  // 右馬達正轉（GPIO2）
-#define MOTOR_R_BWD 4  // 右馬達反轉（GPIO4）
-
-// PWM 通道設定 (使用 Timer 2 的通道 4-7)
-// ESP32 LEDC 通道與 Timer 對應關係（固定）：
-//   Timer 0: CH 0,1,8,9   | Timer 1: CH 2,3,10,11
-//   Timer 2: CH 4,5,12,13 | Timer 3: CH 6,7,14,15
-
-#define CH_L_FWD 4 // 左馬達正轉通道（Timer 2, Channel 4）
-#define CH_L_BWD 5 // 左馬達反轉通道（Timer 2, Channel 5）
-#define CH_R_FWD 6 // 右馬達正轉通道（Timer 2, Channel 6）
-#define CH_R_BWD 7 // 右馬達反轉通道（Timer 2, Channel 7）
-
-// ===== 參數設定 =====
-#define IR_THRESHOLD 2000 // 紅外線感測閾值：>2000 判定為黑線，<2000 為白線
-#define PWM_FREQ 75000    // PWM 頻率 75kHz（高頻降低馬達噪音和脈動）
-#define PWM_RES 8         // PWM 解析度 8-bit，即 0~255 共 256 階
-
-// ===== 速度閉環控制參數 =====
-// 速度控制週期（毫秒）：根據 test_max_speed() 測得的極限速度調整
-// 建議：每週期計數變化 ≥ 5 較穩定
-// 例如：極限 45 c/100ms → 用 20ms（約 9c）；極限 20 c/100ms → 用 50ms（約 10c）
-#define SPEED_CONTROL_PERIOD 20 // 速度控制週期，單位 ms
-
-//? 調參指引：SPEED_KP （速度閉環比例係數）
-// - 作用：PWM 調整量 = (目標速度 - 實際速度) * Kp
-// - 太大（例：5.0）→ 車子一頓一頓、抖動 → 往下調
-// - 太小（例：0.01）→ 反應慢、達不到目標速度 → 往上調
-// - 建議從 0.1 開始，逐步微調至平順
-#define SPEED_KP 0.1 // 速度控制比例係數
-
-// ===== 函式前向宣告 =====
-// 提示：函式宣告格式為 回傳型別 函式名稱(參數);
-//       例如：void forward(); 或 int IR_M_read();
-//
-// 前向宣告的目的：允許 setup() 和 loop() 在函式定義之前呼叫這些函式
-
-// --- 紅外線感測器相關函式 ---
-// 功能：讀取各路紅外線感測器，回傳 1 (黑線) 或 0 (白線)
-int IR_LL_read(); // 讀取最左側紅外線感測器
-int IR_L_read();  // 讀取左側紅外線感測器
-int IR_M_read();  // 讀取中間紅外線感測器
-int IR_R_read();  // 讀取右側紅外線感測器
-int IR_RR_read(); // 讀取最右側紅外線感測器
-
-// --- OLED 顯示相關函式 ---
-void oled_init();           // 初始化 OLED 顯示器（I2C 通訊）
-void oled_show_ir_status(); // 在 OLED 顯示紅外線狀態和編碼器計數
-
-// --- HuskyLens AI 視覺模組函式 ---
-void huskylens_init(); // 初始化 HuskyLens（I2C 通訊，與 OLED 共用）
-
-// --- 馬達控制相關函式 ---
-// 低層函式：直接控制左右馬達 PWM 值
-void motor(int L, int R); // 馬達控制 (L:左輪速度 -255~255, R:右輪速度 -255~255)
-
-// 高層動作函式：基於 motor() 實現的複合動作
-void forward();        // 直線前進 (左輪55，右輪55)
-void s_Left();         // 差速左轉 (左輪25，右輪45)
-void s_Right();        // 差速右轉 (左輪45，右輪25)
-void m_Left();         // 左轉 (左輪停止，右輪35)
-void m_Right();        // 右轉 (左輪35，右輪停止)
-void b_Left();         // 急左轉 (左輪-55，右輪55 - 左輪反轉)
-void b_Right();        // 急右轉 (左輪55，右輪-55 - 右輪反轉)
-void stop();           // 停止（兩輪速度都為 0）
-void trail_to_cross(); // 循跡到十字路口（所有紅外線感測器都偵測到黑線）
-void turn_to_grab();
-void ninety_leftdegree_turn(); // 90 度轉彎（實驗性，根據編碼器計數調整）
-void come_back();
-void red_release();
-void orange_release();
-void green_release();
-
-// 距離控制函式：根據編碼器反饋控制精確距離
-void p_left(int distance);  // 設定距離左轉
-void p_right(int distance); // 設定距離右轉
-
-// --- 伺服馬達控制函式 ---
-// 功能：控制手臂和爪子的角度，單位為度數（0~180°）
-void arm_up();        // 手臂升起（寫入 ARM_UP 角度）
-void arm_down();      // 手臂下降（寫入 ARM_DOWN 角度）
-void arm_down_slow(); // 手臂慢慢下降
-void claw_open();     // 爪子開啟（寫入 CLAW_OPEN 角度）
-void claw_close();    // 爪子關閉（寫入 CLAW_CLOSE 角度）
-
-// 複合伺服動作
-void pickup_object();  // 撿取物體動作序列（張爪 → 下降 → 夾爪 → 上升）
-void release_object(); // 釋放物體動作序列（下降 → 張爪）
-void prepare_pickup(); // 打開爪子並且降下手臂，準備撿取物體
-// --- 攝像頭伺服控制函式 ---
-void camera_front(); // 攝像頭轉向正前方（90°）
-void camera_left();  // 攝像頭轉向左側（170°）
-
-// --- 測試函式 =====
-// 功能：逐一測試各硬體元件是否正常運作，結果透過 Serial 或 OLED 輸出
-
-// --- 速度閉環控制函式 ---
-// 功能：根據目標速度動態調整 PWM，不受電池電量影響
-void speed_control(float L_target, float R_target); // 速度閉環控制（輸入目標速度 c/週期）
-void p_fw_v2(int distance);
-void p_bw_v2(int distance); // 新版前進：速度閉環 + 左右同步修正
-
-// --- 循跡功能 ---
-void trail(); // 循跡邏輯（根據 IR 陣列自動調整方向以跟隨黑線）
-
-// ===== 自訂函式實作區 =====
-// 本區塊包含所有硬體控制和功能邏輯的實現
-
-// ============ 紅外線感測器函式 ============
-// 原理：紅外線感測器於黑線上反射值較小，白地反射值較大
-// 讀取模式：使用 analogRead() 取得 0~4095 的類比值，與閾值比較
-// 回傳值：1 表示黑線（物體），0 表示白線（空地）
-
-int IR_LL_read()
+namespace hw
 {
-  int sensorvalue = analogRead(IR_LL_PIN);     // 讀取最左側感測器的類比值
-  return (sensorvalue > IR_THRESHOLD) ? 1 : 0; // 與閾值比較
-}
-int IR_L_read()
+constexpr uint8_t tftSck = 18;
+constexpr uint8_t tftMosi = 23;
+constexpr uint8_t tftCs = 25;
+constexpr uint8_t tftDc = 17;
+constexpr uint8_t tftRst = 16;
+constexpr uint8_t tftBl = 26;
+
+constexpr uint8_t i2cSda = 21;
+constexpr uint8_t i2cScl = 22;
+constexpr uint8_t oledAddr = 0x3C;
+constexpr uint8_t pcaAddr = 0x40;
+
+constexpr uint8_t dhtPin = 13;
+constexpr uint8_t ldrPin = 12;
+constexpr uint8_t btn1Pin = 2;
+constexpr uint8_t btn2Pin = 4;
+
+constexpr uint8_t rgbChR = 0;
+constexpr uint8_t rgbChG = 1;
+constexpr uint8_t rgbChB = 2;
+
+constexpr uint16_t tftWidth = 160;
+constexpr uint16_t tftHeight = 128;
+constexpr uint16_t oledWidth = 128;
+constexpr uint16_t oledHeight = 64;
+} // namespace hw
+
+enum class ButtonWiringType : uint8_t
 {
-  int sensorvalue = analogRead(IR_L_PIN); // 讀取左側感測器的類比值
-  return (sensorvalue > IR_THRESHOLD) ? 1 : 0;
-}
-int IR_M_read()
+  AutoByIdle,
+  PullUpActiveLow,
+  PullDownActiveHigh
+};
+
+constexpr uint32_t kRenderIntervalMs = 33;
+constexpr uint32_t kBootDurationMs = 2200;
+constexpr uint32_t kLongPressMs = 1000;
+constexpr uint32_t kPanicHoldMs = 5000;
+constexpr uint32_t kInputGuardMs = 120;
+constexpr uint32_t kErrorScreenMs = 1500;
+constexpr uint32_t kToastMs = 1400;
+constexpr uint32_t kGreenPulseMs = 1200;
+constexpr uint8_t kTopScores = 3;
+constexpr uint8_t kPasswordLength = 4;
+constexpr uint32_t kButtonDebounceMs = 40;
+constexpr char kDefaultPassword[] = "1120";
+constexpr bool kBypassPasswordLock = true;
+constexpr bool kBypassPasswordForButtonTest = false;
+constexpr ButtonWiringType kBtn1Wiring = ButtonWiringType::AutoByIdle;
+constexpr ButtonWiringType kBtn2Wiring = ButtonWiringType::AutoByIdle;
+constexpr uint8_t kTftInitMode = INITR_GREENTAB;
+constexpr uint8_t kTftRotation = 1;
+constexpr int16_t kFooterY = 116;
+
+constexpr uint16_t color565(uint8_t r, uint8_t g, uint8_t b)
 {
-  int sensorvalue = analogRead(IR_M_PIN); // 讀取中間感測器（最關鍵）
-  return (sensorvalue > IR_THRESHOLD) ? 1 : 0;
-}
-int IR_R_read()
-{
-  int sensorvalue = analogRead(IR_R_PIN); // 讀取右側感測器的類比值
-  return (sensorvalue > IR_THRESHOLD) ? 1 : 0;
-}
-int IR_RR_read()
-{
-  int sensorvalue = analogRead(IR_RR_PIN); // 讀取最右側感測器的類比值
-  return (sensorvalue > IR_THRESHOLD) ? 1 : 0;
+  return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
 }
 
-// ============ OLED 顯示函式 ============
-void oled_init()
-{
-  // 初始化 I2C 通訊：SDA=21, SCL=22
-  Wire.begin(OLED_SDA, OLED_SCL);
+constexpr uint16_t COLOR_BG = color565(5, 12, 22);
+constexpr uint16_t COLOR_PANEL = color565(18, 31, 49);
+constexpr uint16_t COLOR_ACCENT = color565(27, 157, 255);
+constexpr uint16_t COLOR_WARN = color565(255, 180, 0);
+constexpr uint16_t COLOR_DANGER = color565(240, 70, 60);
+constexpr uint16_t COLOR_GOOD = color565(50, 210, 110);
+constexpr uint16_t COLOR_TEXT = ST77XX_WHITE;
+constexpr uint16_t COLOR_DIM = color565(140, 165, 190);
 
-  // 嘗試初始化 SSD1306 OLED 顯示器
-  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR))
+template <typename T> T clampValue(T value, T lower, T upper)
+{
+  if (value < lower)
   {
-    Serial.println("SSD1306 init failed");
-    return;
+    return lower;
+  }
+  if (value > upper)
+  {
+    return upper;
+  }
+  return value;
+}
+
+enum class AppState : uint8_t
+{
+  Boot,
+  LockScreen,
+  MainMenu,
+  SensorMonitor,
+  SelfTest,
+  GamesMenu,
+  Leaderboard,
+  GameRunning,
+  GameResult
+};
+
+enum class GameId : uint8_t
+{
+  Breakout,
+  Pong,
+  FlappyBird,
+  ShieldSword,
+  BalloonBattle,
+  GridBattle,
+  PoleClimb,
+  Racing,
+  DuckHunt,
+  QuickDraw,
+  Count
+};
+
+enum class LdrState : uint8_t
+{
+  Unknown,
+  Ok,
+  Warning
+};
+
+struct HardwareProfile
+{
+  uint8_t tftSck;
+  uint8_t tftMosi;
+  uint8_t tftCs;
+  uint8_t tftDc;
+  uint8_t tftRst;
+  uint8_t tftBl;
+  uint8_t i2cSda;
+  uint8_t i2cScl;
+  uint8_t dhtPin;
+  uint8_t ldrPin;
+  uint8_t btn1Pin;
+  uint8_t btn2Pin;
+  uint8_t oledAddr;
+  uint8_t pcaAddr;
+  uint8_t rgbChR;
+  uint8_t rgbChG;
+  uint8_t rgbChB;
+  bool backlightActiveHigh;
+};
+
+struct InputSnapshot
+{
+  bool btn1Down = false;
+  bool btn2Down = false;
+  bool btn1RawHigh = false;
+  bool btn2RawHigh = false;
+  bool btn1DownEdge = false;
+  bool btn2DownEdge = false;
+  bool btn1Pressed = false;
+  bool btn2Pressed = false;
+  bool btn1Long = false;
+  bool btn2Long = false;
+  bool panicCombo = false;
+};
+
+struct PasswordInputState
+{
+  int8_t digits[kPasswordLength] = {-1, -1, -1, -1};
+  uint8_t cursor = 0;
+  uint8_t filledCount = 0;
+  uint8_t currentValue = 0;
+  bool isComplete = false;
+};
+
+struct SensorSnapshot
+{
+  float temperatureC = NAN;
+  float humidityPct = NAN;
+  int lightRaw = 0;
+  int lightPct = 0;
+  bool dhtOk = false;
+};
+
+struct SelfTestReport
+{
+  bool tftOk = false;
+  bool oledOk = false;
+  bool pcaOk = false;
+  bool dhtOk = false;
+  LdrState ldrState = LdrState::Unknown;
+  bool buttonsOk = false;
+};
+
+struct LeaderboardEntry
+{
+  uint32_t score = 0;
+  uint32_t durationMs = 0;
+  uint8_t difficulty = 0;
+};
+
+struct ToastState
+{
+  bool active = false;
+  char message[28] = {};
+  uint16_t color = COLOR_ACCENT;
+  uint32_t untilMs = 0;
+};
+
+struct GameResult
+{
+  GameId gameId = GameId::Breakout;
+  uint8_t difficulty = 0;
+  uint32_t score = 0;
+  uint32_t durationMs = 0;
+  bool completed = false;
+};
+
+struct GameDescriptor
+{
+  GameId id;
+  const char *title;
+  bool implemented;
+  uint8_t difficultyCount;
+  const char *const *difficultyNames;
+};
+
+const char *const kBaseDifficultyNames[] = {"Base"};
+const char *const kPongDifficultyNames[] = {"Easy", "Normal", "Hard"};
+
+const GameDescriptor kGameDescriptors[] = {
+    {GameId::Breakout, "Breakout", true, 1, kBaseDifficultyNames},
+    {GameId::Pong, "Pong", true, 3, kPongDifficultyNames},
+    {GameId::FlappyBird, "Flappy Bird", true, 1, kBaseDifficultyNames},
+    {GameId::ShieldSword, "Shield & Sword", false, 1, kBaseDifficultyNames},
+    {GameId::BalloonBattle, "Balloon Battle", false, 1, kBaseDifficultyNames},
+    {GameId::GridBattle, "Grid Battle", false, 1, kBaseDifficultyNames},
+    {GameId::PoleClimb, "Pole Climb", false, 1, kBaseDifficultyNames},
+    {GameId::Racing, "Racing", false, 1, kBaseDifficultyNames},
+    {GameId::DuckHunt, "Duck Hunt", false, 1, kBaseDifficultyNames},
+    {GameId::QuickDraw, "Quick Draw", false, 1, kBaseDifficultyNames},
+};
+
+const char *const kMainMenuItems[] = {
+    "Sensors",
+    "Games",
+    "Scores",
+    "Self Test",
+};
+
+const HardwareProfile Hardware = {
+    hw::tftSck, hw::tftMosi, hw::tftCs, hw::tftDc, hw::tftRst, hw::tftBl,
+    hw::i2cSda, hw::i2cScl, hw::dhtPin, hw::ldrPin, hw::btn1Pin, hw::btn2Pin,
+    hw::oledAddr, hw::pcaAddr, hw::rgbChR, hw::rgbChG, hw::rgbChB, true,
+};
+
+Adafruit_ST7735 tft = Adafruit_ST7735(Hardware.tftCs, Hardware.tftDc, Hardware.tftRst);
+Adafruit_SSD1306 oled(hw::oledWidth, hw::oledHeight, &Wire, -1);
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(Hardware.pcaAddr, Wire);
+DHT dht(Hardware.dhtPin, DHT11);
+Preferences prefs;
+
+class ButtonTracker
+{
+public:
+  void begin(uint8_t pin, ButtonWiringType wiring)
+  {
+    _pin = pin;
+    _wiring = wiring;
+    pinMode(_pin, (_wiring == ButtonWiringType::PullDownActiveHigh) ? INPUT_PULLDOWN : INPUT_PULLUP);
+    delay(2);
+    _idleHigh = rawLevelHigh();
+    _lastRaw = pressedFromLevel(_idleHigh);
+    _stableDown = _lastRaw;
+    _lastChangeMs = millis();
+    _downSinceMs = _lastChangeMs;
   }
 
-  // 初始化成功，設定標誌位
-  oled_ready = true;
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-}
-
-// ============ HuskyLens AI 視覺模組函式 ============
-
-//* HuskyLens 初始化
-// 使用 I2C 通訊，與 OLED 共用 SDA/SCL（Wire 已在 oled_init() 中初始化）
-// 注意：辨識模式需在 HuskyLens 鏡頭上預先設定好
-void huskylens_init()
-{
-  //? 若連線失敗會持續重試，檢查：1.接線 2.I2C 地址 3.鏡頭電源
-  while (!huskylens.begin(Wire))
+  void update(uint32_t now, bool &shortPress, bool &longPress, bool &down, bool &rawHigh, bool &downEdge)
   {
-    Serial.println("HuskyLens I2C 連線失敗，重試中...");
-    Serial.println("1. 檢查 SDA/SCL 接線是否正確？");
-    Serial.println("2. 檢查 HuskyLens 是否已開機？");
-    delay(500);
-  }
-  Serial.println("HuskyLens 初始化成功！");
-}
+    shortPress = false;
+    longPress = false;
+    downEdge = false;
 
-// --- 物品辨識 ---
-int color_detect()
-{
-  int target = -1;
-  while (target == -1)
-  {
-    huskylens.request();
-    if (huskylens.countBlocks() > 0)
+    rawHigh = rawLevelHigh();
+    const bool raw = pressedFromLevel(rawHigh);
+    if (raw != _lastRaw)
     {
-      if (huskylens.countBlocks(1) > 0)
+      _lastRaw = raw;
+      _lastChangeMs = now;
+    }
+
+    if ((now - _lastChangeMs) >= _debounceMs && raw != _stableDown)
+    {
+      _stableDown = raw;
+      if (_stableDown)
       {
-        target = 1; // 玉米，黃色
-        return target;
+        _downSinceMs = now;
+        _longTriggered = false;
+        downEdge = true;
       }
-      else if (huskylens.countBlocks(2) > 0)
+      else if (!_longTriggered)
       {
-        target = 2; // 胡蘿蔔，橘色
-        return target;
-      }
-      else if (huskylens.countBlocks(3) > 0)
-      {
-        target = 3; // 番茄，綠色
-        return target;
+        shortPress = true;
       }
     }
-    delay(100);
+
+    if (_stableDown && !_longTriggered && (now - _downSinceMs) >= kLongPressMs)
+    {
+      _longTriggered = true;
+      longPress = true;
+    }
+
+    down = _stableDown;
+  }
+
+private:
+  bool rawLevelHigh() const
+  {
+    return digitalRead(_pin) == HIGH;
+  }
+
+  bool pressedFromLevel(bool rawHigh) const
+  {
+    switch (_wiring)
+    {
+    case ButtonWiringType::AutoByIdle:
+      return rawHigh != _idleHigh;
+    case ButtonWiringType::PullDownActiveHigh:
+      return rawHigh;
+    case ButtonWiringType::PullUpActiveLow:
+    default:
+      return !rawHigh;
+    }
+  }
+
+  uint8_t _pin = 0;
+  ButtonWiringType _wiring = ButtonWiringType::AutoByIdle;
+  bool _idleHigh = true;
+  bool _lastRaw = false;
+  bool _stableDown = false;
+  bool _longTriggered = false;
+  uint32_t _lastChangeMs = 0;
+  uint32_t _downSinceMs = 0;
+  static constexpr uint32_t _debounceMs = kButtonDebounceMs;
+};
+
+class InputService
+{
+public:
+  void begin()
+  {
+    _btn1.begin(Hardware.btn1Pin, kBtn1Wiring);
+    _btn2.begin(Hardware.btn2Pin, kBtn2Wiring);
+  }
+
+  InputSnapshot update(uint32_t now)
+  {
+    InputSnapshot input;
+    _btn1.update(now, input.btn1Pressed, input.btn1Long, input.btn1Down, input.btn1RawHigh, input.btn1DownEdge);
+    _btn2.update(now, input.btn2Pressed, input.btn2Long, input.btn2Down, input.btn2RawHigh, input.btn2DownEdge);
+
+    if (_requireRelease)
+    {
+      if (!input.btn1Down && !input.btn2Down && now >= _suppressUntilMs)
+      {
+        _requireRelease = false;
+      }
+      else
+      {
+        return {};
+      }
+    }
+
+    if (now < _suppressUntilMs)
+    {
+      return {};
+    }
+
+    if (input.btn1Down && input.btn2Down)
+    {
+      if (_comboStartMs == 0)
+      {
+        _comboStartMs = now;
+      }
+      if (!_comboLatched && (now - _comboStartMs) >= kPanicHoldMs)
+      {
+        input.panicCombo = true;
+        _comboLatched = true;
+      }
+    }
+    else
+    {
+      _comboStartMs = 0;
+      _comboLatched = false;
+    }
+
+    return input;
+  }
+
+  void suppressUntilRelease(uint32_t now, uint32_t durationMs = kInputGuardMs)
+  {
+    _suppressUntilMs = now + durationMs;
+    _requireRelease = true;
+    _comboStartMs = 0;
+    _comboLatched = false;
+  }
+
+private:
+  ButtonTracker _btn1;
+  ButtonTracker _btn2;
+  uint32_t _comboStartMs = 0;
+  bool _comboLatched = false;
+  uint32_t _suppressUntilMs = 0;
+  bool _requireRelease = false;
+};
+
+class StorageService
+{
+public:
+  void begin()
+  {
+    prefs.begin("rec_console", false);
+  }
+
+  void load()
+  {
+    _password = prefs.getString("password", kDefaultPassword);
+    _darkRaw = prefs.getInt("darkRaw", 4000);
+    _brightRaw = prefs.getInt("brightRaw", 200);
+    if (!prefs.isKey("password"))
+    {
+      prefs.putString("password", _password);
+    }
+    else if (_password == "1234")
+    {
+      _password = kDefaultPassword;
+      prefs.putString("password", _password);
+    }
+    if (!prefs.isKey("darkRaw"))
+    {
+      prefs.putInt("darkRaw", _darkRaw);
+    }
+    if (!prefs.isKey("brightRaw"))
+    {
+      prefs.putInt("brightRaw", _brightRaw);
+    }
+  }
+
+  const String &password() const
+  {
+    return _password;
+  }
+
+  int darkRaw() const
+  {
+    return _darkRaw;
+  }
+
+  int brightRaw() const
+  {
+    return _brightRaw;
+  }
+
+  void saveCalibration(int darkRaw, int brightRaw)
+  {
+    _darkRaw = darkRaw;
+    _brightRaw = brightRaw;
+    prefs.putInt("darkRaw", _darkRaw);
+    prefs.putInt("brightRaw", _brightRaw);
+  }
+
+  LeaderboardEntry loadEntry(GameId gameId, uint8_t difficulty, uint8_t rank) const
+  {
+    LeaderboardEntry entry;
+    LeaderboardEntry table[kTopScores];
+    loadTable(gameId, difficulty, table);
+    if (rank < kTopScores)
+    {
+      entry = table[rank];
+    }
+    return entry;
+  }
+
+  int8_t submitResult(const GameResult &result)
+  {
+    LeaderboardEntry table[kTopScores];
+    loadTable(result.gameId, result.difficulty, table);
+
+    LeaderboardEntry candidate;
+    candidate.score = result.score;
+    candidate.durationMs = result.durationMs;
+    candidate.difficulty = result.difficulty;
+
+    for (uint8_t i = 0; i < kTopScores; ++i)
+    {
+      if (better(candidate, table[i]) || table[i].score == 0)
+      {
+        for (int j = kTopScores - 1; j > i; --j)
+        {
+          table[j] = table[j - 1];
+        }
+        table[i] = candidate;
+        saveTable(result.gameId, result.difficulty, table);
+        return static_cast<int8_t>(i);
+      }
+    }
+    return -1;
+  }
+
+private:
+  bool better(const LeaderboardEntry &lhs, const LeaderboardEntry &rhs) const
+  {
+    if (lhs.score != rhs.score)
+    {
+      return lhs.score > rhs.score;
+    }
+    return lhs.durationMs > rhs.durationMs;
+  }
+
+  void makeKey(GameId gameId, uint8_t difficulty, char *buffer, size_t size) const
+  {
+    snprintf(buffer, size, "lb_%u_%u", static_cast<unsigned>(gameId), difficulty);
+  }
+
+  void loadTable(GameId gameId, uint8_t difficulty, LeaderboardEntry table[kTopScores]) const
+  {
+    for (uint8_t i = 0; i < kTopScores; ++i)
+    {
+      table[i] = {};
+    }
+
+    char key[16];
+    makeKey(gameId, difficulty, key, sizeof(key));
+    const size_t expectedSize = sizeof(LeaderboardEntry) * kTopScores;
+    if (prefs.getBytesLength(key) == expectedSize)
+    {
+      prefs.getBytes(key, table, expectedSize);
+    }
+  }
+
+  void saveTable(GameId gameId, uint8_t difficulty, const LeaderboardEntry table[kTopScores])
+  {
+    char key[16];
+    makeKey(gameId, difficulty, key, sizeof(key));
+    prefs.putBytes(key, table, sizeof(LeaderboardEntry) * kTopScores);
+  }
+
+  String _password = kDefaultPassword;
+  int _darkRaw = 4000;
+  int _brightRaw = 200;
+};
+
+class SensorService
+{
+public:
+  void begin(int darkRaw, int brightRaw)
+  {
+    _darkRaw = darkRaw;
+    _brightRaw = brightRaw;
+    dht.begin();
+    pinMode(Hardware.ldrPin, INPUT);
+    analogReadResolution(12);
+    analogSetPinAttenuation(Hardware.ldrPin, ADC_11db);
+
+    const int initial = analogRead(Hardware.ldrPin);
+    for (uint8_t i = 0; i < 16; ++i)
+    {
+      _samples[i] = initial;
+    }
+    _snapshot.lightRaw = initial;
+    _snapshot.lightPct = computePct(initial);
+  }
+
+  void update(uint32_t now)
+  {
+    if (_lastLightSampleMs == 0 || (now - _lastLightSampleMs) >= 100)
+    {
+      _lastLightSampleMs = now;
+      sampleLight();
+    }
+
+    if (_lastDhtSampleMs == 0 || (now - _lastDhtSampleMs) >= 1000)
+    {
+      _lastDhtSampleMs = now;
+      const float temp = dht.readTemperature();
+      const float humidity = dht.readHumidity();
+      if (!isnan(temp) && !isnan(humidity))
+      {
+        _snapshot.temperatureC = temp;
+        _snapshot.humidityPct = humidity;
+        _lastDhtValidMs = now;
+      }
+    }
+
+    _snapshot.dhtOk = _lastDhtValidMs != 0 && (now - _lastDhtValidMs) <= 3000;
+  }
+
+  const SensorSnapshot &snapshot() const
+  {
+    return _snapshot;
+  }
+
+  void setCalibration(int darkRaw, int brightRaw)
+  {
+    _darkRaw = darkRaw;
+    _brightRaw = brightRaw;
+    _snapshot.lightPct = computePct(_snapshot.lightRaw);
+  }
+
+private:
+  void sampleLight()
+  {
+    _samples[_sampleIndex] = analogRead(Hardware.ldrPin);
+    _sampleIndex = (_sampleIndex + 1) % 16;
+
+    long sum = 0;
+    for (uint8_t i = 0; i < 16; ++i)
+    {
+      sum += _samples[i];
+    }
+
+    _snapshot.lightRaw = static_cast<int>(sum / 16);
+    _snapshot.lightPct = computePct(_snapshot.lightRaw);
+  }
+
+  int computePct(int raw) const
+  {
+    if (_darkRaw == _brightRaw)
+    {
+      return 0;
+    }
+
+    const float ratio = static_cast<float>(_darkRaw - raw) / static_cast<float>(_darkRaw - _brightRaw);
+    return clampValue(static_cast<int>(ratio * 100.0f + 0.5f), 0, 100);
+  }
+
+  SensorSnapshot _snapshot;
+  int _samples[16] = {};
+  uint8_t _sampleIndex = 0;
+  uint32_t _lastLightSampleMs = 0;
+  uint32_t _lastDhtSampleMs = 0;
+  uint32_t _lastDhtValidMs = 0;
+  int _darkRaw = 4000;
+  int _brightRaw = 200;
+};
+
+class RgbService
+{
+public:
+  void begin(bool available)
+  {
+    _available = available;
+    if (_available)
+    {
+      setColor(0, 0, 0);
+    }
+  }
+
+  void setColor(uint16_t r, uint16_t g, uint16_t b)
+  {
+    if (!_available)
+    {
+      return;
+    }
+    pwm.setPWM(Hardware.rgbChR, 0, clampValue<uint16_t>(r, 0, 4095));
+    pwm.setPWM(Hardware.rgbChG, 0, clampValue<uint16_t>(g, 0, 4095));
+    pwm.setPWM(Hardware.rgbChB, 0, clampValue<uint16_t>(b, 0, 4095));
+  }
+
+private:
+  bool _available = false;
+};
+
+class IGame
+{
+public:
+  virtual ~IGame() {}
+  virtual GameId id() const = 0;
+  virtual void enter(uint8_t difficulty, uint32_t nowMs) = 0;
+  virtual void update(uint32_t nowMs, const InputSnapshot &input, const SensorSnapshot &sensors) = 0;
+  virtual void renderTft(Adafruit_ST7735 &display) = 0;
+  virtual void renderOledOverlay(Adafruit_SSD1306 &display, const SensorSnapshot &sensors) = 0;
+  virtual bool isFinished() const = 0;
+  virtual GameResult result() const = 0;
+};
+
+bool circleRectCollision(float cx, float cy, float radius, float rx, float ry, float rw, float rh, float &normalX, float &normalY)
+{
+  const float closestX = clampValue(cx, rx, rx + rw);
+  const float closestY = clampValue(cy, ry, ry + rh);
+  const float dx = cx - closestX;
+  const float dy = cy - closestY;
+  if ((dx * dx + dy * dy) > (radius * radius))
+  {
+    return false;
+  }
+
+  if (fabsf(dx) > fabsf(dy))
+  {
+    normalX = (dx >= 0.0f) ? 1.0f : -1.0f;
+    normalY = 0.0f;
+  }
+  else if (fabsf(dy) > 0.0f)
+  {
+    normalX = 0.0f;
+    normalY = (dy >= 0.0f) ? 1.0f : -1.0f;
+  }
+  else
+  {
+    normalX = 0.0f;
+    normalY = -1.0f;
+  }
+
+  return true;
+}
+
+void drawGameSensorOverlay(Adafruit_SSD1306 &display, const char *headline, uint32_t primaryValue, const char *primaryLabel, const SensorSnapshot &sensors);
+
+class BreakoutGame : public IGame
+{
+public:
+  GameId id() const override
+  {
+    return GameId::Breakout;
+  }
+
+  void enter(uint8_t difficulty, uint32_t nowMs) override
+  {
+    (void)difficulty;
+    _difficulty = 0;
+    _startMs = nowMs;
+    _lastUpdateMs = nowMs;
+    _finished = false;
+    _completed = false;
+    _score = 0;
+    _powerUntilMs = 0;
+    _paddleWidth = 28.0f;
+    _paddleX = (hw::tftWidth - _paddleWidth) * 0.5f;
+    _ballX = hw::tftWidth * 0.5f;
+    _ballY = hw::tftHeight - 24.0f;
+    _ballVx = 78.0f;
+    _ballVy = -98.0f;
+
+    for (uint8_t r = 0; r < kRows; ++r)
+    {
+      for (uint8_t c = 0; c < kCols; ++c)
+      {
+        _bricks[r][c] = true;
+        _special[r][c] = false;
+      }
+    }
+
+    randomSeed(micros());
+    for (uint8_t i = 0; i < 3; ++i)
+    {
+      const uint8_t pick = random(0, kRows * kCols);
+      _special[pick / kCols][pick % kCols] = true;
+    }
+  }
+
+  void update(uint32_t nowMs, const InputSnapshot &input, const SensorSnapshot &) override
+  {
+    if (_finished)
+    {
+      return;
+    }
+
+    float dt = (nowMs - _lastUpdateMs) / 1000.0f;
+    dt = clampValue(dt, 0.0f, 0.05f);
+    _lastUpdateMs = nowMs;
+
+    const float paddleSpeed = 160.0f;
+    if (input.btn1Down && !input.btn2Down)
+    {
+      _paddleX -= paddleSpeed * dt;
+    }
+    if (input.btn2Down && !input.btn1Down)
+    {
+      _paddleX += paddleSpeed * dt;
+    }
+    _paddleX = clampValue(_paddleX, 2.0f, hw::tftWidth - _paddleWidth - 2.0f);
+
+    if (_powerUntilMs != 0 && nowMs > _powerUntilMs)
+    {
+      _paddleWidth = 28.0f;
+      _powerUntilMs = 0;
+      _paddleX = clampValue(_paddleX, 2.0f, hw::tftWidth - _paddleWidth - 2.0f);
+    }
+
+    _ballX += _ballVx * dt;
+    _ballY += _ballVy * dt;
+
+    if (_ballX <= kRadius || _ballX >= (hw::tftWidth - kRadius))
+    {
+      _ballX = clampValue(_ballX, kRadius, static_cast<float>(hw::tftWidth - kRadius));
+      _ballVx = -_ballVx;
+    }
+    if (_ballY <= kRadius + 14)
+    {
+      _ballY = kRadius + 14;
+      _ballVy = fabsf(_ballVy);
+    }
+
+    float nx = 0.0f;
+    float ny = 0.0f;
+    if (circleRectCollision(_ballX, _ballY, kRadius, _paddleX, hw::tftHeight - 12.0f, _paddleWidth, 4.0f, nx, ny) && _ballVy > 0.0f)
+    {
+      reflect(nx, ny);
+      const float hitFactor = ((_ballX - _paddleX) / _paddleWidth) - 0.5f;
+      _ballVx += hitFactor * 90.0f;
+      _ballVy = -fabsf(_ballVy);
+      normalizeBallSpeed(125.0f);
+    }
+
+    bool brickHit = false;
+    for (uint8_t r = 0; r < kRows && !brickHit; ++r)
+    {
+      for (uint8_t c = 0; c < kCols && !brickHit; ++c)
+      {
+        if (!_bricks[r][c])
+        {
+          continue;
+        }
+
+        const float brickX = 8.0f + c * (kBrickW + 2.0f);
+        const float brickY = 20.0f + r * (kBrickH + 3.0f);
+        if (circleRectCollision(_ballX, _ballY, kRadius, brickX, brickY, kBrickW, kBrickH, nx, ny))
+        {
+          _bricks[r][c] = false;
+          brickHit = true;
+          reflect(nx, ny);
+          _score += _special[r][c] ? 25 : 10;
+          if (_special[r][c])
+          {
+            _paddleWidth = 42.0f;
+            _powerUntilMs = nowMs + 8000;
+          }
+        }
+      }
+    }
+
+    if (_ballY > hw::tftHeight + 8)
+    {
+      finish(nowMs, false);
+      return;
+    }
+
+    bool anyBrickLeft = false;
+    for (uint8_t r = 0; r < kRows && !anyBrickLeft; ++r)
+    {
+      for (uint8_t c = 0; c < kCols && !anyBrickLeft; ++c)
+      {
+        anyBrickLeft = _bricks[r][c];
+      }
+    }
+    if (!anyBrickLeft)
+    {
+      finish(nowMs, true);
+    }
+  }
+
+  void renderTft(Adafruit_ST7735 &display) override
+  {
+    display.fillScreen(COLOR_BG);
+    display.fillRect(0, 0, hw::tftWidth, 14, COLOR_PANEL);
+    display.setCursor(4, 3);
+    display.setTextColor(COLOR_TEXT);
+    display.setTextSize(1);
+    display.print("Breakout");
+    display.setCursor(hw::tftWidth - 44, 3);
+    display.print(_score);
+
+    for (uint8_t r = 0; r < kRows; ++r)
+    {
+      for (uint8_t c = 0; c < kCols; ++c)
+      {
+        if (!_bricks[r][c])
+        {
+          continue;
+        }
+        const int x = 8 + c * (kBrickW + 2);
+        const int y = 20 + r * (kBrickH + 3);
+        const uint16_t fill = _special[r][c] ? COLOR_WARN : COLOR_ACCENT;
+        display.fillRoundRect(x, y, kBrickW, kBrickH, 2, fill);
+      }
+    }
+
+    drawPrediction(display);
+    display.fillRoundRect(static_cast<int>(_paddleX), hw::tftHeight - 12, static_cast<int>(_paddleWidth), 4, 2, ST77XX_WHITE);
+    display.fillCircle(static_cast<int>(_ballX), static_cast<int>(_ballY), static_cast<int>(kRadius), COLOR_GOOD);
+    if (_powerUntilMs != 0)
+    {
+      display.setCursor(4, kFooterY);
+      display.setTextColor(COLOR_WARN);
+      display.print("BIG");
+    }
+  }
+
+  void renderOledOverlay(Adafruit_SSD1306 &display, const SensorSnapshot &sensors) override
+  {
+    drawGameSensorOverlay(display, "BREAKOUT", _score, "Score:", sensors);
+  }
+
+  bool isFinished() const override
+  {
+    return _finished;
+  }
+
+  GameResult result() const override
+  {
+    GameResult result;
+    result.gameId = id();
+    result.difficulty = _difficulty;
+    result.score = _score;
+    result.durationMs = _durationMs;
+    result.completed = _completed;
+    return result;
+  }
+
+private:
+  void reflect(float nx, float ny)
+  {
+    const float dot = (_ballVx * nx) + (_ballVy * ny);
+    _ballVx -= 2.0f * dot * nx;
+    _ballVy -= 2.0f * dot * ny;
+  }
+
+  void normalizeBallSpeed(float speed)
+  {
+    const float magnitude = sqrtf(_ballVx * _ballVx + _ballVy * _ballVy);
+    if (magnitude > 0.001f)
+    {
+      _ballVx = (_ballVx / magnitude) * speed;
+      _ballVy = (_ballVy / magnitude) * speed;
+    }
+  }
+
+  void finish(uint32_t nowMs, bool completed)
+  {
+    _finished = true;
+    _completed = completed;
+    _durationMs = nowMs - _startMs;
+  }
+
+  void drawPrediction(Adafruit_ST7735 &display)
+  {
+    float x = _ballX;
+    float y = _ballY;
+    float vx = _ballVx * 0.12f;
+    float vy = _ballVy * 0.12f;
+
+    for (uint8_t i = 0; i < 18; ++i)
+    {
+      x += vx;
+      y += vy;
+      if (x <= kRadius || x >= (hw::tftWidth - kRadius))
+      {
+        vx = -vx;
+      }
+      if (y <= kRadius + 14)
+      {
+        vy = -vy;
+      }
+      if ((i % 2) == 0)
+      {
+        display.drawPixel(static_cast<int>(x), static_cast<int>(y), COLOR_DIM);
+      }
+    }
+  }
+
+  static constexpr uint8_t kRows = 4;
+  static constexpr uint8_t kCols = 6;
+  static constexpr float kBrickW = 22.0f;
+  static constexpr float kBrickH = 10.0f;
+  static constexpr float kRadius = 3.0f;
+
+  bool _bricks[kRows][kCols] = {};
+  bool _special[kRows][kCols] = {};
+  bool _finished = false;
+  bool _completed = false;
+  uint8_t _difficulty = 0;
+  uint32_t _startMs = 0;
+  uint32_t _lastUpdateMs = 0;
+  uint32_t _durationMs = 0;
+  uint32_t _powerUntilMs = 0;
+  uint32_t _score = 0;
+  float _paddleX = 0.0f;
+  float _paddleWidth = 28.0f;
+  float _ballX = 0.0f;
+  float _ballY = 0.0f;
+  float _ballVx = 0.0f;
+  float _ballVy = 0.0f;
+};
+
+class PongGame : public IGame
+{
+public:
+  GameId id() const override
+  {
+    return GameId::Pong;
+  }
+
+  void enter(uint8_t difficulty, uint32_t nowMs) override
+  {
+    _difficulty = clampValue<uint8_t>(difficulty, 0, 2);
+    _startMs = nowMs;
+    _lastUpdateMs = nowMs;
+    _playerY = 46.0f;
+    _aiY = 46.0f;
+    _playerScore = 0;
+    _aiScore = 0;
+    _finished = false;
+    _completed = false;
+    resetBall(random(0, 2) == 0 ? -1.0f : 1.0f);
+  }
+
+  void update(uint32_t nowMs, const InputSnapshot &input, const SensorSnapshot &) override
+  {
+    if (_finished)
+    {
+      return;
+    }
+
+    float dt = (nowMs - _lastUpdateMs) / 1000.0f;
+    dt = clampValue(dt, 0.0f, 0.05f);
+    _lastUpdateMs = nowMs;
+
+    const float playerSpeed = 110.0f;
+    if (input.btn1Down && !input.btn2Down)
+    {
+      _playerY -= playerSpeed * dt;
+    }
+    if (input.btn2Down && !input.btn1Down)
+    {
+      _playerY += playerSpeed * dt;
+    }
+    _playerY = clampValue(_playerY, 16.0f, static_cast<float>(hw::tftHeight - kPaddleH - 4));
+
+    const float aiSpeed = (_difficulty == 0) ? 65.0f : (_difficulty == 1) ? 90.0f
+                                                                            : 115.0f;
+    const float aiTarget = _ballY - (kPaddleH * 0.5f);
+    if (_aiY < aiTarget)
+    {
+      _aiY += aiSpeed * dt;
+    }
+    else if (_aiY > aiTarget)
+    {
+      _aiY -= aiSpeed * dt;
+    }
+    _aiY = clampValue(_aiY, 16.0f, static_cast<float>(hw::tftHeight - kPaddleH - 4));
+
+    _ballX += _ballVx * dt;
+    _ballY += _ballVy * dt;
+
+    if (_ballY <= kRadius + 14 || _ballY >= (hw::tftHeight - kRadius - 1))
+    {
+      _ballVy = -_ballVy;
+      _ballY = clampValue(_ballY, kRadius + 14, static_cast<float>(hw::tftHeight - kRadius - 1));
+    }
+
+    float nx = 0.0f;
+    float ny = 0.0f;
+    if (circleRectCollision(_ballX, _ballY, kRadius, 8.0f, _playerY, 4.0f, kPaddleH, nx, ny) && _ballVx < 0.0f)
+    {
+      reflect(nx, ny);
+      _ballVx = fabsf(_ballVx) + 8.0f;
+      _ballVy += ((_ballY - _playerY) / kPaddleH - 0.5f) * 40.0f;
+    }
+
+    if (circleRectCollision(_ballX, _ballY, kRadius, hw::tftWidth - 12.0f, _aiY, 4.0f, kPaddleH, nx, ny) && _ballVx > 0.0f)
+    {
+      reflect(nx, ny);
+      _ballVx = -fabsf(_ballVx) - 8.0f;
+      _ballVy += ((_ballY - _aiY) / kPaddleH - 0.5f) * 30.0f;
+    }
+
+    if (_ballX < -6.0f)
+    {
+      ++_aiScore;
+      if (_aiScore >= 5)
+      {
+        finish(nowMs, false);
+      }
+      else
+      {
+        resetBall(1.0f);
+      }
+    }
+    else if (_ballX > hw::tftWidth + 6.0f)
+    {
+      ++_playerScore;
+      if (_playerScore >= 5)
+      {
+        finish(nowMs, true);
+      }
+      else
+      {
+        resetBall(-1.0f);
+      }
+    }
+  }
+
+  void renderTft(Adafruit_ST7735 &display) override
+  {
+    display.fillScreen(COLOR_BG);
+    display.fillRect(0, 0, hw::tftWidth, 14, COLOR_PANEL);
+    display.setTextColor(COLOR_TEXT);
+    display.setCursor(4, 3);
+    display.print("Pong");
+    display.setCursor(hw::tftWidth - 48, 3);
+    display.print(_playerScore);
+    display.print(":");
+    display.print(_aiScore);
+
+    for (int y = 18; y < hw::tftHeight; y += 8)
+    {
+      display.drawFastVLine(hw::tftWidth / 2, y, 4, COLOR_DIM);
+    }
+
+    display.fillRoundRect(8, static_cast<int>(_playerY), 4, kPaddleH, 2, COLOR_ACCENT);
+    display.fillRoundRect(hw::tftWidth - 12, static_cast<int>(_aiY), 4, kPaddleH, 2, COLOR_WARN);
+    display.fillCircle(static_cast<int>(_ballX), static_cast<int>(_ballY), static_cast<int>(kRadius), ST77XX_WHITE);
+
+    display.setTextColor(COLOR_DIM);
+    display.setCursor(54, kFooterY);
+    display.print(kPongDifficultyNames[_difficulty]);
+  }
+
+  void renderOledOverlay(Adafruit_SSD1306 &display, const SensorSnapshot &sensors) override
+  {
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 0);
+    display.print("PONG ");
+    display.print(kPongDifficultyNames[_difficulty]);
+    display.setCursor(0, 12);
+    display.print("Score:");
+    display.print(_playerScore);
+    display.print("-");
+    display.print(_aiScore);
+    display.setCursor(0, 24);
+    display.print("T:");
+    if (sensors.dhtOk)
+    {
+      display.print(static_cast<int>(sensors.temperatureC));
+      display.print("C H:");
+      display.print(static_cast<int>(sensors.humidityPct));
+      display.print("%");
+    }
+    else
+    {
+      display.print("-- H:--");
+    }
+    display.setCursor(0, 36);
+    display.print("L:");
+    display.print(sensors.lightPct);
+    display.print("%");
+    display.display();
+  }
+
+  bool isFinished() const override
+  {
+    return _finished;
+  }
+
+  GameResult result() const override
+  {
+    GameResult result;
+    result.gameId = id();
+    result.difficulty = _difficulty;
+    result.score = static_cast<uint32_t>(_playerScore) * 100 + (_completed ? 500 : 0);
+    result.durationMs = _durationMs;
+    result.completed = _completed;
+    return result;
+  }
+
+private:
+  void reflect(float nx, float ny)
+  {
+    const float dot = (_ballVx * nx) + (_ballVy * ny);
+    _ballVx -= 2.0f * dot * nx;
+    _ballVy -= 2.0f * dot * ny;
+  }
+
+  void resetBall(float direction)
+  {
+    _ballX = hw::tftWidth * 0.5f;
+    _ballY = hw::tftHeight * 0.5f;
+    const float speed = (_difficulty == 0) ? 72.0f : (_difficulty == 1) ? 88.0f
+                                                                         : 104.0f;
+    _ballVx = speed * direction;
+    _ballVy = random(-25, 26);
+  }
+
+  void finish(uint32_t nowMs, bool completed)
+  {
+    _finished = true;
+    _completed = completed;
+    _durationMs = nowMs - _startMs;
+  }
+
+  static constexpr float kRadius = 3.0f;
+  static constexpr int kPaddleH = 24;
+
+  bool _finished = false;
+  bool _completed = false;
+  uint8_t _difficulty = 0;
+  uint32_t _startMs = 0;
+  uint32_t _lastUpdateMs = 0;
+  uint32_t _durationMs = 0;
+  uint8_t _playerScore = 0;
+  uint8_t _aiScore = 0;
+  float _playerY = 46.0f;
+  float _aiY = 46.0f;
+  float _ballX = 0.0f;
+  float _ballY = 0.0f;
+  float _ballVx = 0.0f;
+  float _ballVy = 0.0f;
+};
+
+class FlappyBirdGame : public IGame
+{
+public:
+  GameId id() const override
+  {
+    return GameId::FlappyBird;
+  }
+
+  void enter(uint8_t difficulty, uint32_t nowMs) override
+  {
+    (void)difficulty;
+    _difficulty = 0;
+    _finished = false;
+    _completed = false;
+    _score = 0;
+    _startMs = nowMs;
+    _lastUpdateMs = nowMs;
+    _birdY = hw::tftHeight * 0.5f;
+    _birdVel = 0.0f;
+
+    for (uint8_t i = 0; i < kPipeCount; ++i)
+    {
+      _pipes[i].x = hw::tftWidth + i * 62.0f;
+      _pipes[i].gapY = 28 + random(0, 40);
+      _pipes[i].scored = false;
+    }
+  }
+
+  void update(uint32_t nowMs, const InputSnapshot &input, const SensorSnapshot &) override
+  {
+    if (_finished)
+    {
+      return;
+    }
+
+    float dt = (nowMs - _lastUpdateMs) / 1000.0f;
+    dt = clampValue(dt, 0.0f, 0.05f);
+    _lastUpdateMs = nowMs;
+
+    if (input.btn1Pressed)
+    {
+      _birdVel = -92.0f;
+    }
+
+    _birdVel += 260.0f * dt;
+    _birdY += _birdVel * dt;
+
+    if (_birdY < 14.0f || _birdY > hw::tftHeight - 4.0f)
+    {
+      finish(nowMs, false);
+      return;
+    }
+
+    float farthestX = 0.0f;
+    for (uint8_t i = 0; i < kPipeCount; ++i)
+    {
+      farthestX = max(farthestX, _pipes[i].x);
+      _pipes[i].x -= 75.0f * dt;
+
+      if (!_pipes[i].scored && (_pipes[i].x + kPipeW) < kBirdX)
+      {
+        _pipes[i].scored = true;
+        ++_score;
+      }
+
+      if ((_pipes[i].x + kPipeW) < 0.0f)
+      {
+        _pipes[i].x = farthestX + 62.0f;
+        _pipes[i].gapY = 28 + random(0, 40);
+        _pipes[i].scored = false;
+        farthestX = _pipes[i].x;
+      }
+
+      if (collisionWithPipe(_pipes[i]))
+      {
+        finish(nowMs, false);
+        return;
+      }
+    }
+  }
+
+  void renderTft(Adafruit_ST7735 &display) override
+  {
+    display.fillScreen(color565(20, 30, 45));
+    display.fillRect(0, 0, hw::tftWidth, 14, COLOR_PANEL);
+    display.setCursor(4, 3);
+    display.setTextColor(COLOR_TEXT);
+    display.print("Flappy Bird");
+    display.setCursor(hw::tftWidth - 44, 3);
+    display.print(_score);
+
+    for (uint8_t i = 0; i < kPipeCount; ++i)
+    {
+      const int x = static_cast<int>(_pipes[i].x);
+      const int topH = _pipes[i].gapY;
+      const int bottomY = _pipes[i].gapY + kGapH;
+      display.fillRect(x, 14, kPipeW, topH - 14, COLOR_GOOD);
+      display.fillRect(x, bottomY, kPipeW, hw::tftHeight - bottomY, COLOR_GOOD);
+    }
+
+    display.fillCircle(kBirdX, static_cast<int>(_birdY), 4, COLOR_WARN);
+    display.fillTriangle(kBirdX - 2, static_cast<int>(_birdY) - 1, kBirdX - 2, static_cast<int>(_birdY) + 2, kBirdX + 4, static_cast<int>(_birdY), ST77XX_WHITE);
+  }
+
+  void renderOledOverlay(Adafruit_SSD1306 &display, const SensorSnapshot &sensors) override
+  {
+    drawGameSensorOverlay(display, "FLAPPY", _score, "Score:", sensors);
+  }
+
+  bool isFinished() const override
+  {
+    return _finished;
+  }
+
+  GameResult result() const override
+  {
+    GameResult result;
+    result.gameId = id();
+    result.difficulty = _difficulty;
+    result.score = _score * 100;
+    result.durationMs = _durationMs;
+    result.completed = _completed;
+    return result;
+  }
+
+private:
+  struct Pipe
+  {
+    float x = 0.0f;
+    int gapY = 0;
+    bool scored = false;
+  };
+
+  bool collisionWithPipe(const Pipe &pipe) const
+  {
+    const bool inX = (kBirdX + 4) >= pipe.x && (kBirdX - 4) <= (pipe.x + kPipeW);
+    const bool inGap = (_birdY - 4) >= pipe.gapY && (_birdY + 4) <= (pipe.gapY + kGapH);
+    return inX && !inGap;
+  }
+
+  void finish(uint32_t nowMs, bool completed)
+  {
+    _finished = true;
+    _completed = completed;
+    _durationMs = nowMs - _startMs;
+  }
+
+  static constexpr uint8_t kPipeCount = 3;
+  static constexpr int kPipeW = 20;
+  static constexpr int kGapH = 34;
+  static constexpr int kBirdX = 38;
+
+  Pipe _pipes[kPipeCount];
+  bool _finished = false;
+  bool _completed = false;
+  uint8_t _difficulty = 0;
+  uint32_t _startMs = 0;
+  uint32_t _lastUpdateMs = 0;
+  uint32_t _durationMs = 0;
+  uint32_t _score = 0;
+  float _birdY = 0.0f;
+  float _birdVel = 0.0f;
+};
+
+InputService inputService;
+StorageService storageService;
+SensorService sensorService;
+RgbService rgbService;
+BreakoutGame breakoutGame;
+PongGame pongGame;
+FlappyBirdGame flappyBirdGame;
+
+AppState appState = AppState::Boot;
+uint32_t bootStartedMs = 0;
+uint32_t lastRenderMs = 0;
+uint32_t passwordErrorUntilMs = 0;
+uint32_t selfTestGreenUntilMs = 0;
+uint32_t gamesToastUntilMs = 0;
+bool gamesShowComingSoon = false;
+
+bool oledReady = false;
+bool pcaReady = false;
+bool tftReady = false;
+ToastState uiToast;
+
+PasswordInputState passwordState;
+SelfTestReport selfTestReport;
+InputSnapshot latestInputSnapshot;
+bool selfTestBtn1Seen = false;
+bool selfTestBtn2Seen = false;
+bool selfTestInitialized = false;
+bool selfTestPassLatched = false;
+uint32_t selfTestStartedMs = 0;
+
+uint8_t mainMenuIndex = 0;
+uint8_t gamesMenuIndex = 0;
+uint8_t selectedLaunchDifficulty[static_cast<uint8_t>(GameId::Count)] = {};
+uint8_t selectedLeaderboardDifficulty[static_cast<uint8_t>(GameId::Count)] = {};
+bool gamesDifficultyMode = false;
+uint8_t leaderboardIndex = 0;
+
+IGame *activeGame = nullptr;
+GameResult activeGameResult;
+int8_t activeGameRank = -1;
+uint8_t resultActionIndex = 0;
+
+bool addressResponds(uint8_t address);
+const char *buttonPressLevelLabel(ButtonWiringType wiring);
+const char *pinLevelLabel(bool rawHigh);
+float adcToVoltage(int raw, float reference = 3.3f);
+const char *rangeStatusLabel(float value, float low, float high);
+uint16_t rangeStatusColor(float value, float low, float high);
+const GameDescriptor &descriptorFor(GameId gameId);
+IGame *gameForId(GameId gameId);
+void resetPasswordState();
+void changeState(AppState newState, uint32_t nowMs);
+void drawCenteredText(Adafruit_GFX &display, int16_t centerY, const char *text, uint16_t color, uint8_t textSize = 1);
+void showToast(const char *message, uint16_t color, uint32_t durationMs = kToastMs);
+void updateRgb(uint32_t nowMs);
+void runSelfTestStart(uint32_t nowMs);
+bool selfTestPassed();
+void startGame(GameId gameId, uint8_t difficulty, uint32_t nowMs);
+void exitToMainMenu();
+void finalizeGameResult();
+void handlePasswordInput(const InputSnapshot &input);
+void handleMainMenu(const InputSnapshot &input);
+void handleSensorMonitor(const InputSnapshot &input);
+void handleSelfTest(const InputSnapshot &input, uint32_t nowMs);
+void handleGamesMenu(const InputSnapshot &input, uint32_t nowMs);
+void handleLeaderboard(const InputSnapshot &input);
+void handleGameResult(const InputSnapshot &input, uint32_t nowMs);
+void drawSensorSummaryOled(const SensorSnapshot &sensors, const char *headline);
+void drawGameSensorOverlay(Adafruit_SSD1306 &display, const char *headline, uint32_t primaryValue, const char *primaryLabel, const SensorSnapshot &sensors);
+void renderBoot(uint32_t nowMs);
+void renderLockScreen();
+void renderMainMenu();
+void renderSensorMonitor();
+void renderSelfTest();
+void renderGamesMenu();
+void renderLeaderboards();
+void renderGameResult();
+void renderGameFrame();
+void renderToastOverlay(uint32_t nowMs);
+void renderFrame(uint32_t nowMs);
+
+bool addressResponds(uint8_t address)
+{
+  Wire.beginTransmission(address);
+  return Wire.endTransmission() == 0;
+}
+
+const char *buttonPressLevelLabel(ButtonWiringType wiring)
+{
+  switch (wiring)
+  {
+  case ButtonWiringType::AutoByIdle:
+    return "AUTO";
+  case ButtonWiringType::PullDownActiveHigh:
+    return "HIGH";
+  case ButtonWiringType::PullUpActiveLow:
+  default:
+    return "LOW";
   }
 }
 
-void oled_show_ir_status()
+const char *pinLevelLabel(bool rawHigh)
 {
-  // 檢查 OLED 是否初始化成功
-  if (!oled_ready)
+  return rawHigh ? "HIGH" : "LOW";
+}
+
+float adcToVoltage(int raw, float reference)
+{
+  return (static_cast<float>(clampValue(raw, 0, 4095)) / 4095.0f) * reference;
+}
+
+const char *rangeStatusLabel(float value, float low, float high)
+{
+  if (isnan(value))
+  {
+    return "FAIL";
+  }
+  if (value < low)
+  {
+    return "LOW";
+  }
+  if (value > high)
+  {
+    return "HIGH";
+  }
+  return "OK";
+}
+
+uint16_t rangeStatusColor(float value, float low, float high)
+{
+  if (isnan(value))
+  {
+    return COLOR_DANGER;
+  }
+  if (value < low || value > high)
+  {
+    return COLOR_WARN;
+  }
+  return COLOR_GOOD;
+}
+
+const GameDescriptor &descriptorFor(GameId gameId)
+{
+  return kGameDescriptors[static_cast<uint8_t>(gameId)];
+}
+
+IGame *gameForId(GameId gameId)
+{
+  switch (gameId)
+  {
+  case GameId::Breakout:
+    return &breakoutGame;
+  case GameId::Pong:
+    return &pongGame;
+  case GameId::FlappyBird:
+    return &flappyBirdGame;
+  default:
+    return nullptr;
+  }
+}
+
+void resetPasswordState()
+{
+  passwordState = {};
+}
+
+void changeState(AppState newState, uint32_t nowMs)
+{
+  appState = newState;
+  inputService.suppressUntilRelease(nowMs);
+}
+
+void drawCenteredText(Adafruit_GFX &display, int16_t centerY, const char *text, uint16_t color, uint8_t textSize)
+{
+  int16_t x1 = 0;
+  int16_t y1 = 0;
+  uint16_t w = 0;
+  uint16_t h = 0;
+  display.setTextSize(textSize);
+  display.getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
+  display.setTextColor(color);
+  display.setCursor((display.width() - static_cast<int16_t>(w)) / 2, centerY - (static_cast<int16_t>(h) / 2));
+  display.print(text);
+}
+
+void showToast(const char *message, uint16_t color, uint32_t durationMs)
+{
+  strncpy(uiToast.message, message, sizeof(uiToast.message) - 1);
+  uiToast.message[sizeof(uiToast.message) - 1] = '\0';
+  uiToast.color = color;
+  uiToast.untilMs = millis() + durationMs;
+  uiToast.active = true;
+}
+
+void updateRgb(uint32_t nowMs)
+{
+  if (!pcaReady)
   {
     return;
   }
 
-  // 清除並重新繪製顯示內容
+  if (appState == AppState::GameRunning)
+  {
+    rgbService.setColor(0, 0, 0);
+    return;
+  }
+
+  if (selfTestGreenUntilMs > nowMs)
+  {
+    rgbService.setColor(0, 3500, 0);
+    return;
+  }
+
+  if (passwordErrorUntilMs > nowMs)
+  {
+    const bool on = ((nowMs / 180) % 2) == 0;
+    rgbService.setColor(on ? 4095 : 0, 0, 0);
+    return;
+  }
+
+  if (appState == AppState::Boot)
+  {
+    const uint16_t level = static_cast<uint16_t>((sinf(nowMs / 180.0f) * 0.5f + 0.5f) * 3000.0f) + 400;
+    rgbService.setColor(0, 0, level);
+    return;
+  }
+
+  if (appState == AppState::LockScreen)
+  {
+    rgbService.setColor(2600, 1800, 0);
+    return;
+  }
+
+  if (appState == AppState::SelfTest)
+  {
+    if (kBypassPasswordForButtonTest)
+    {
+      if (selfTestReport.buttonsOk)
+      {
+        rgbService.setColor(0, 2800, 0);
+      }
+      else
+      {
+        rgbService.setColor(0, 0, 1800);
+      }
+      return;
+    }
+    const bool failure = !selfTestReport.oledOk || !selfTestReport.pcaOk || !selfTestReport.dhtOk;
+    if (failure)
+    {
+      const bool on = ((nowMs / 220) % 2) == 0;
+      rgbService.setColor(on ? 4095 : 0, 0, 0);
+      return;
+    }
+  }
+
+  rgbService.setColor(0, 0, 0);
+}
+
+void runSelfTestStart(uint32_t nowMs)
+{
+  selfTestInitialized = true;
+  selfTestStartedMs = nowMs;
+  selfTestBtn1Seen = false;
+  selfTestBtn2Seen = false;
+  selfTestReport = {};
+  selfTestReport.tftOk = tftReady;
+  selfTestReport.oledOk = addressResponds(Hardware.oledAddr);
+  selfTestReport.pcaOk = addressResponds(Hardware.pcaAddr);
+
+  uint8_t extremeCount = 0;
+  for (uint8_t i = 0; i < 5; ++i)
+  {
+    const int sample = analogRead(Hardware.ldrPin);
+    if (sample == 0 || sample == 4095)
+    {
+      ++extremeCount;
+    }
+    delay(5);
+  }
+  selfTestReport.ldrState = (extremeCount == 5) ? LdrState::Warning : LdrState::Ok;
+}
+
+bool selfTestPassed()
+{
+  return selfTestReport.tftOk && selfTestReport.oledOk && selfTestReport.pcaOk && selfTestReport.dhtOk && selfTestReport.buttonsOk;
+}
+
+void startGame(GameId gameId, uint8_t difficulty, uint32_t nowMs)
+{
+  activeGame = gameForId(gameId);
+  if (activeGame == nullptr)
+  {
+    return;
+  }
+
+  activeGameRank = -1;
+  activeGame->enter(difficulty, nowMs);
+  resultActionIndex = 0;
+  changeState(AppState::GameRunning, nowMs);
+}
+
+void exitToMainMenu()
+{
+  changeState(AppState::MainMenu, millis());
+  activeGame = nullptr;
+  gamesDifficultyMode = false;
+}
+
+void finalizeGameResult()
+{
+  if (activeGame == nullptr)
+  {
+    return;
+  }
+
+  activeGameResult = activeGame->result();
+  activeGameRank = storageService.submitResult(activeGameResult);
+  activeGame = nullptr;
+  resultActionIndex = 0;
+  changeState(AppState::GameResult, millis());
+}
+
+void handlePasswordInput(const InputSnapshot &input)
+{
+  if (passwordErrorUntilMs != 0)
+  {
+    if (millis() > passwordErrorUntilMs)
+    {
+      passwordErrorUntilMs = 0;
+      resetPasswordState();
+    }
+    return;
+  }
+
+  if (input.btn1Pressed)
+  {
+    passwordState.currentValue = (passwordState.currentValue + 1) % 10;
+  }
+
+  if (input.btn1Long)
+  {
+    if (passwordState.cursor > 0)
+    {
+      passwordState.cursor--;
+      passwordState.filledCount = passwordState.cursor;
+      passwordState.currentValue = (passwordState.digits[passwordState.cursor] >= 0) ? passwordState.digits[passwordState.cursor] : 0;
+      passwordState.digits[passwordState.cursor] = -1;
+    }
+    return;
+  }
+
+  if (input.btn2Pressed)
+  {
+    passwordState.digits[passwordState.cursor] = passwordState.currentValue;
+    passwordState.filledCount = min<uint8_t>(passwordState.cursor + 1, kPasswordLength);
+    if (passwordState.cursor == (kPasswordLength - 1))
+    {
+      passwordState.isComplete = true;
+      char entered[kPasswordLength + 1];
+      for (uint8_t i = 0; i < kPasswordLength; ++i)
+      {
+        entered[i] = static_cast<char>('0' + passwordState.digits[i]);
+      }
+      entered[kPasswordLength] = '\0';
+
+      if (storageService.password().equals(entered))
+      {
+        changeState(AppState::MainMenu, millis());
+        resetPasswordState();
+        showToast("Unlocked", COLOR_GOOD, 1200);
+      }
+      else
+      {
+        passwordErrorUntilMs = millis() + kErrorScreenMs;
+      }
+    }
+    else
+    {
+      passwordState.cursor++;
+      passwordState.currentValue = 0;
+    }
+  }
+}
+
+void handleMainMenu(const InputSnapshot &input)
+{
+  if (input.btn1DownEdge)
+  {
+    mainMenuIndex = (mainMenuIndex + 1) % 4;
+  }
+  if (input.btn2DownEdge)
+  {
+    switch (mainMenuIndex)
+    {
+    case 0:
+      changeState(AppState::SensorMonitor, millis());
+      break;
+    case 1:
+      changeState(AppState::GamesMenu, millis());
+      break;
+    case 2:
+      changeState(AppState::Leaderboard, millis());
+      break;
+    case 3:
+      changeState(AppState::SelfTest, millis());
+      selfTestInitialized = false;
+      selfTestPassLatched = false;
+      break;
+    }
+  }
+}
+
+void handleSensorMonitor(const InputSnapshot &input)
+{
+  if (input.btn1DownEdge)
+  {
+    storageService.saveCalibration(sensorService.snapshot().lightRaw, storageService.brightRaw());
+    sensorService.setCalibration(storageService.darkRaw(), storageService.brightRaw());
+    char message[28];
+    snprintf(message, sizeof(message), "Dark saved: %d", storageService.darkRaw());
+    showToast(message, COLOR_WARN);
+  }
+  if (input.btn2DownEdge)
+  {
+    storageService.saveCalibration(storageService.darkRaw(), sensorService.snapshot().lightRaw);
+    sensorService.setCalibration(storageService.darkRaw(), storageService.brightRaw());
+    char message[28];
+    snprintf(message, sizeof(message), "Bright saved: %d", storageService.brightRaw());
+    showToast(message, COLOR_ACCENT);
+  }
+  if (input.btn1Long)
+  {
+    changeState(AppState::MainMenu, millis());
+  }
+}
+
+void handleSelfTest(const InputSnapshot &input, uint32_t nowMs)
+{
+  if (!selfTestInitialized)
+  {
+    runSelfTestStart(nowMs);
+  }
+
+  if ((nowMs - selfTestStartedMs) > 200)
+  {
+    const bool btn1SeenBefore = selfTestBtn1Seen;
+    const bool btn2SeenBefore = selfTestBtn2Seen;
+    if (input.btn1DownEdge || input.btn1Pressed || input.btn1Long)
+    {
+      selfTestBtn1Seen = true;
+    }
+    if (input.btn2DownEdge || input.btn2Pressed || input.btn2Long)
+    {
+      selfTestBtn2Seen = true;
+    }
+  }
+
+  selfTestReport.buttonsOk = selfTestBtn1Seen && selfTestBtn2Seen;
+  selfTestReport.dhtOk = sensorService.snapshot().dhtOk && ((nowMs - selfTestStartedMs) <= 2500 || sensorService.snapshot().dhtOk);
+
+  if (kBypassPasswordForButtonTest)
+  {
+    if (input.btn1Long)
+    {
+      selfTestInitialized = false;
+      selfTestPassLatched = false;
+      showToast("Button retest", COLOR_ACCENT);
+      return;
+    }
+
+    if (input.btn2Long)
+    {
+      if (selfTestReport.buttonsOk)
+      {
+        showToast("Open games", COLOR_GOOD);
+        changeState(AppState::GamesMenu, millis());
+      }
+      else
+      {
+        showToast("Need both buttons", COLOR_WARN);
+      }
+      return;
+    }
+  }
+
+  if (selfTestPassed() && !selfTestPassLatched)
+  {
+    selfTestGreenUntilMs = nowMs + kGreenPulseMs;
+    selfTestPassLatched = true;
+    showToast("Self-test pass", COLOR_GOOD);
+  }
+
+  if (input.btn1Long)
+  {
+    changeState(AppState::MainMenu, millis());
+  }
+  if (input.btn2Long)
+  {
+    selfTestInitialized = false;
+    selfTestPassLatched = false;
+  }
+}
+
+void handleGamesMenu(const InputSnapshot &input, uint32_t nowMs)
+{
+  const GameDescriptor &current = kGameDescriptors[gamesMenuIndex];
+
+  if (gamesDifficultyMode)
+  {
+    if (input.btn1DownEdge)
+    {
+      selectedLaunchDifficulty[gamesMenuIndex] = (selectedLaunchDifficulty[gamesMenuIndex] + 1) % current.difficultyCount;
+    }
+    if (input.btn1Long)
+    {
+      gamesDifficultyMode = false;
+    }
+    if (input.btn2DownEdge)
+    {
+      gamesDifficultyMode = false;
+      startGame(current.id, selectedLaunchDifficulty[gamesMenuIndex], nowMs);
+    }
+    return;
+  }
+
+  if (input.btn1DownEdge)
+  {
+    gamesMenuIndex = (gamesMenuIndex + 1) % static_cast<uint8_t>(GameId::Count);
+  }
+  if (input.btn1Long)
+  {
+    changeState(AppState::MainMenu, millis());
+  }
+  if (input.btn2DownEdge)
+  {
+    const GameDescriptor &selected = kGameDescriptors[gamesMenuIndex];
+    if (!selected.implemented)
+    {
+      gamesShowComingSoon = true;
+      gamesToastUntilMs = nowMs + kToastMs;
+      showToast("Coming Soon", COLOR_WARN);
+      return;
+    }
+
+    if (selected.difficultyCount > 1)
+    {
+      gamesDifficultyMode = true;
+      return;
+    }
+    startGame(selected.id, 0, nowMs);
+  }
+}
+
+void handleLeaderboard(const InputSnapshot &input)
+{
+  const GameDescriptor &selected = kGameDescriptors[leaderboardIndex];
+  if (input.btn1DownEdge)
+  {
+    leaderboardIndex = (leaderboardIndex + 1) % static_cast<uint8_t>(GameId::Count);
+  }
+  if (input.btn1Long)
+  {
+    changeState(AppState::MainMenu, millis());
+  }
+  if (input.btn2DownEdge && selected.difficultyCount > 1)
+  {
+    selectedLeaderboardDifficulty[leaderboardIndex] = (selectedLeaderboardDifficulty[leaderboardIndex] + 1) % selected.difficultyCount;
+  }
+}
+
+void handleGameResult(const InputSnapshot &input, uint32_t nowMs)
+{
+  if (input.btn1DownEdge)
+  {
+    resultActionIndex = (resultActionIndex == 0) ? 1 : 0;
+  }
+  if (input.btn1Long)
+  {
+    changeState(AppState::MainMenu, millis());
+  }
+  if (input.btn2DownEdge)
+  {
+    if (resultActionIndex == 0)
+    {
+      startGame(activeGameResult.gameId, activeGameResult.difficulty, nowMs);
+    }
+    else
+    {
+      changeState(AppState::MainMenu, millis());
+    }
+  }
+}
+
+void drawSensorSummaryOled(const SensorSnapshot &sensors, const char *headline)
+{
+  if (!oledReady)
+  {
+    return;
+  }
+
+  oled.clearDisplay();
+  oled.setTextSize(1);
+  oled.setTextColor(SSD1306_WHITE);
+  oled.setCursor(0, 0);
+  oled.print(headline);
+  oled.setCursor(0, 14);
+  oled.print("T:");
+  if (sensors.dhtOk)
+  {
+    oled.print(static_cast<int>(sensors.temperatureC));
+    oled.print("C H:");
+    oled.print(static_cast<int>(sensors.humidityPct));
+    oled.print("%");
+  }
+  else
+  {
+    oled.print("--");
+  }
+  oled.setCursor(0, 28);
+  oled.print("Light:");
+  oled.print(sensors.lightPct);
+  oled.print("%");
+  oled.setCursor(0, 42);
+  oled.print("Raw:");
+  oled.print(sensors.lightRaw);
+  oled.display();
+}
+
+void drawGameSensorOverlay(Adafruit_SSD1306 &display, const char *headline, uint32_t primaryValue, const char *primaryLabel, const SensorSnapshot &sensors)
+{
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
-
-  // 第一行：顯示 5 路紅外線感測值
   display.setCursor(0, 0);
-  display.print("IR:L ");
-  display.print(IR_LL_read()); // 最左
-  display.print(" ");
-  display.print(IR_L_read()); // 左
-  display.print(" ");
-  display.print(IR_M_read()); // 中
-  display.print(" ");
-  display.print(IR_R_read()); // 右
-  display.print(" ");
-  display.print(IR_RR_read()); // 最右
-  display.print(" R");
-
-  // 第二行：顯示編碼器計數值
-  display.println(" ");
-  display.print("Enc L:");
-  display.print(leftEncoder.getCount()); // 左馬達計數
-  display.print(" R:");
-  display.println(rightEncoder.getCount()); // 右馬達計數
-
-  // 顯示目標值
-  display.println();
-  display.print("Target L/R:");
-  display.print(p_left_dis);
-  // 將緩衝區內容寫入 OLED 顯示器
+  display.print(headline);
+  display.setCursor(0, 12);
+  display.print(primaryLabel);
+  display.print(primaryValue);
+  display.setCursor(0, 24);
+  display.print("T:");
+  if (sensors.dhtOk)
+  {
+    display.print(static_cast<int>(sensors.temperatureC));
+    display.print("C H:");
+    display.print(static_cast<int>(sensors.humidityPct));
+    display.print("%");
+  }
+  else
+  {
+    display.print("-- H:--");
+  }
+  display.setCursor(0, 36);
+  display.print("L:");
+  display.print(sensors.lightPct);
+  display.print("%");
   display.display();
 }
 
-// ============ 馬達控制函式 ============
-// PWM 原理：LEDC 通道獨立控制，通過 ledcWrite() 設定 0~255 的輸出值
-// 馬達控制：正轉通道和反轉通道中，只有一個可以有輸出（另一個必須為 0）
-
-void motor(int L, int R)
+void renderBoot(uint32_t nowMs)
 {
-  //* 核心馬達控制函式
-  // 輸入：L = 左輪速度 -255~255，R = 右輪速度 -255~255
-  // 正值 = 前進、負值 = 後退、0 = 停止
-  L = L * 1.55;
-  // 限制左輪速度在 -255~255 範圍內
-  if (L > 255)
-    L = 255;
-  else if (L < -255)
-    L = -255;
+  tft.fillScreen(COLOR_BG);
+  const int barWidth = static_cast<int>((static_cast<float>(hw::tftWidth - 24) * min<uint32_t>(nowMs - bootStartedMs, kBootDurationMs)) / kBootDurationMs);
+  drawCenteredText(tft, 34, "REC HANDHELD", COLOR_TEXT, 2);
+  drawCenteredText(tft, 62, "ESP32 BOOT", COLOR_DIM, 1);
+  tft.drawRoundRect(12, 84, hw::tftWidth - 24, 12, 5, COLOR_DIM);
+  tft.fillRoundRect(14, 86, max(0, barWidth), 8, 4, COLOR_ACCENT);
+  tft.fillCircle(26, 32, 8, COLOR_WARN);
+  tft.fillCircle(hw::tftWidth - 26, 32, 8, COLOR_GOOD);
 
-  // 限制右輪速度在 -255~255 範圍內
-  if (R > 255)
-    R = 255;
-  else if (R < -255)
-    R = -255;
+  drawSensorSummaryOled(sensorService.snapshot(), "BOOT");
+}
 
-  // ===== 左輪控制 =====
-  if (L > 0) // 正轉（前進）
+void renderLockScreen()
+{
+  tft.fillScreen(COLOR_BG);
+  drawCenteredText(tft, 14, "LOCK SCREEN", COLOR_WARN, 1);
+
+  if (passwordErrorUntilMs > millis())
   {
-    ledcWrite(CH_L_FWD, 0);
-    ledcWrite(CH_L_BWD, L); // 反轉通道必須為 0
+    drawCenteredText(tft, 34, "ERROR", COLOR_DANGER, 2);
+    drawCenteredText(tft, 60, "Wrong password", COLOR_TEXT, 1);
+    drawCenteredText(tft, 86, "Try again", COLOR_DIM, 1);
   }
-  else // 反轉（後退）
+  else
   {
-    ledcWrite(CH_L_FWD, -L); // 正轉通道必須為 0
-    ledcWrite(CH_L_BWD, 0);
-  }
-
-  // ===== 右輪控制 =====
-  if (R > 0) // 正轉（前進）
-  {
-    ledcWrite(CH_R_FWD, 0);
-    ledcWrite(CH_R_BWD, R + 4);
-  }
-  else // 反轉（後退）
-  {
-    ledcWrite(CH_R_FWD, -R + 4);
-    ledcWrite(CH_R_BWD, 0);
-  }
-}
-
-// ============ 動作函式（高層馬達控制）============
-// 這些函式呼叫 motor() 實現具體動作，數值已現場校準
-
-void forward()
-{
-  //* 直線前進（左輪 55、右輪 55）
-  //? 調參指引：循跡速度調整
-  //  太慢 → 增加數值：55→65→75
-  //  太快轉彎跟不上 → 減少數值：55→45→35
-  //  偏左 → 增加左輪：motor(60, 55)
-  //  偏右 → 增加右輪：motor(55, 60)
-  motor(50, 50);
-}
-void s_Left()
-{
-  // 差速左轉：左輪25，右輪45（兩輪皆正轉，右輪較快）
-  motor(45, 50);
-}
-
-void s_Right()
-{
-  // 差速右轉：左輪45，右輪25（兩輪皆正轉，左輪較快）
-  motor(50, 45);
-}
-
-void m_Left()
-{
-  // 左轉：左輪停止，右輪35
-  motor(20, 50);
-}
-
-void m_Right()
-{
-  // 右轉：左輪35，右輪停止
-  motor(50, 20);
-}
-
-void b_Left()
-{
-  // 急左轉：左輪反轉，右輪正轉
-  motor(-30, 30);
-}
-
-void b_Right()
-{
-  // 急右轉：左輪正轉，右輪反轉
-  motor(30, -30);
-}
-void stop()
-{
-  // 停止馬達
-  motor(0, 0);
-}
-
-// ============ 距離控制函式 ============
-// 利用編碼器計數實現精確距離控制
-// 校準：1 編碼器計數 ≈ ? mm，需根據輪徑現場測量並調整
-
-void p_left(int degree)
-{
-  // 目標距離（編碼器計數值）
-  int distance = degree * (930 / 180);
-  long targetCount = distance;
-  p_left_dis = distance;
-  // 清除編碼器計數器
-  leftEncoder.clearCount();
-  rightEncoder.clearCount();
-
-  //* 階段 1：快速前進到接近目標
-  const int DECEL_COUNT = 1000; // 開始減速的計數值，方便調整
-  b_Left();
-
-  while (true)
-  {
-    long leftCount = abs(leftEncoder.getCount());
-    long rightCount = rightEncoder.getCount();
-    // 當計數接近目標時停止快速階段
-    if ((leftCount >= targetCount - DECEL_COUNT) || (rightCount >= targetCount - DECEL_COUNT))
+    drawCenteredText(tft, 30, "Enter 4-digit code", COLOR_TEXT, 1);
+    for (uint8_t i = 0; i < kPasswordLength; ++i)
     {
-      break;
+      const int x = 18 + i * 34;
+      const bool active = i == passwordState.cursor;
+      tft.drawRoundRect(x, 48, 24, 28, 4, active ? COLOR_ACCENT : COLOR_DIM);
+      if (i < passwordState.filledCount)
+      {
+        tft.setTextColor(COLOR_TEXT);
+        tft.setTextSize(2);
+        tft.setCursor(x + 7, 56);
+        tft.print(passwordState.digits[i]);
+      }
+      else if (active)
+      {
+        tft.setTextColor(COLOR_WARN);
+        tft.setTextSize(2);
+        tft.setCursor(x + 7, 56);
+        tft.print(passwordState.currentValue);
+      }
+      else
+      {
+        tft.drawFastHLine(x + 7, 66, 10, COLOR_DIM);
+      }
     }
-    delay(1);
+    tft.setTextSize(1);
+    tft.setTextColor(COLOR_DIM);
+    tft.setCursor(12, 98);
+    tft.print("B1:+1  B2:OK  HOLD B1:DEL");
   }
 
-  //* 階段 2：低速精調
-  motor(-35, 35); // 低速前進
-  delay(60);
-  stop();
-
-  //* 階段 3：反復調整至誤差範圍內
-  const int TOLERANCE = 10;       // 容差範圍（±10 計數）
-  const int L_MIN_SPEED = -50;    // 最小驅動速度
-  const int R_MIN_SPEED = 30;     // 最小驅動速度
-  unsigned long maxAttempts = 25; // 最多調整 25 次
-  unsigned long attempts = 0;
-
-  while (attempts < maxAttempts)
-  {
-    long leftCount = abs(leftEncoder.getCount());
-    long rightCount = rightEncoder.getCount();
-    long L_error = leftCount - targetCount; // 計算誤差
-    long R_error = rightCount - targetCount;
-
-    // 誤差在容差範圍內，完成
-    if ((abs(L_error) < TOLERANCE) && (abs(R_error) < TOLERANCE))
-    {
-      break;
-    }
-
-    // 判斷各輪是否超過或未達目標
-    bool L_over = L_error > TOLERANCE;   // 左輪超過
-    bool L_under = L_error < -TOLERANCE; // 左輪未達
-    bool R_over = R_error > TOLERANCE;   // 右輪超過
-    bool R_under = R_error < -TOLERANCE; // 右輪未達
-
-    // 動態計算調整速度
-    int L_adjustSpeed = map(abs(L_error), TOLERANCE, 100, L_MIN_SPEED, -50);
-    L_adjustSpeed = constrain(L_adjustSpeed, L_MIN_SPEED, -50);
-    int R_adjustSpeed = map(abs(R_error), TOLERANCE, 100, R_MIN_SPEED, 50);
-    R_adjustSpeed = constrain(R_adjustSpeed, R_MIN_SPEED, 50);
-
-    // 根據各輪狀態同時調整
-    int L_speed = 0;
-    int R_speed = 0;
-
-    // 左輪修正
-    if (L_over)
-      L_speed = -L_adjustSpeed; // 超過 → 反轉
-    else if (L_under)
-      L_speed = L_adjustSpeed; // 未達 → 正轉
-
-    // 右輪修正
-    if (R_over)
-      R_speed = -R_adjustSpeed; // 超過 → 反轉
-    else if (R_under)
-      R_speed = R_adjustSpeed; // 未達 → 正轉
-
-    motor(L_speed, R_speed);
-    delay(30);
-    // stop();
-    // delay(10);
-    attempts++;
-  }
+  drawSensorSummaryOled(sensorService.snapshot(), "LOCK");
 }
 
-void p_right(int degree)
+void renderMainMenu()
 {
-  // 目標距離（編碼器計數值）
-  int distance = degree * (930 / 180);
-  long targetCount = distance;
-  p_left_dis = distance;
-  // 清除編碼器計數器
-  leftEncoder.clearCount();
-  rightEncoder.clearCount();
-
-  // 階段 1：快速右轉到接近目標
-  const int DECEL_COUNT = 1000; // 開始減速的計數值，方便調整
-  b_Right();
-
-  while (true)
+  tft.fillScreen(COLOR_BG);
+  drawCenteredText(tft, 10, "MAIN MENU", COLOR_TEXT, 1);
+  for (uint8_t i = 0; i < 4; ++i)
   {
-    long leftCount = leftEncoder.getCount();
-    long rightCount = abs(rightEncoder.getCount());
-    // 當計數接近目標時停止快速階段
-    if ((leftCount >= targetCount - DECEL_COUNT) || (rightCount >= targetCount - DECEL_COUNT))
-    {
-      break;
-    }
-    delay(1);
+    const int y = 26 + i * 22;
+    const bool active = i == mainMenuIndex;
+    tft.fillRoundRect(14, y, hw::tftWidth - 28, 16, 4, active ? COLOR_PANEL : COLOR_BG);
+    tft.drawRoundRect(14, y, hw::tftWidth - 28, 16, 4, active ? COLOR_ACCENT : COLOR_DIM);
+    tft.setTextColor(active ? COLOR_TEXT : COLOR_DIM);
+    tft.setCursor(24, y + 4);
+    tft.print(kMainMenuItems[i]);
+  }
+  tft.setTextColor(COLOR_DIM);
+  tft.setCursor(22, kFooterY);
+  tft.print("B1 next  B2 OK");
+
+  drawSensorSummaryOled(sensorService.snapshot(), "MENU");
+}
+
+void renderSensorMonitor()
+{
+  const SensorSnapshot &sensors = sensorService.snapshot();
+  tft.fillScreen(COLOR_BG);
+  drawCenteredText(tft, 10, "SENSOR MONITOR", COLOR_TEXT, 1);
+
+  tft.fillRoundRect(10, 22, 140, 28, 4, COLOR_PANEL);
+  tft.setCursor(16, 30);
+  tft.setTextColor(COLOR_TEXT);
+  tft.print("Temp: ");
+  if (sensors.dhtOk)
+  {
+    tft.print(static_cast<int>(sensors.temperatureC));
+    tft.print(" C");
+  }
+  else
+  {
+    tft.print("--");
   }
 
-  // 階段 2：低速精調
-  motor(35, -35); // 低速右轉
-  delay(60);
-  stop();
-
-  // 階段 3：反復調整至誤差範圍內
-  const int TOLERANCE = 10;       // 容差範圍（±10 計數）
-  const int L_MIN_SPEED = 30;     // 最小驅動速度
-  const int R_MIN_SPEED = -50;    // 最小驅動速度
-  unsigned long maxAttempts = 25; // 最多調整 25 次
-  unsigned long attempts = 0;
-
-  while (attempts < maxAttempts)
+  tft.fillRoundRect(10, 54, 140, 28, 4, COLOR_PANEL);
+  tft.setCursor(16, 62);
+  tft.print("Humidity: ");
+  if (sensors.dhtOk)
   {
-    long leftCount = leftEncoder.getCount();
-    long rightCount = abs(rightEncoder.getCount());
-    long L_error = leftCount - targetCount; // 計算誤差
-    long R_error = rightCount - targetCount;
-
-    // 誤差在容差範圍內，完成
-    if ((abs(L_error) < TOLERANCE) && (abs(R_error) < TOLERANCE))
-    {
-      break;
-    }
-
-    // 判斷各輪是否超過或未達目標
-    bool L_over = L_error > TOLERANCE;   // 左輪超過
-    bool L_under = L_error < -TOLERANCE; // 左輪未達
-    bool R_over = R_error > TOLERANCE;   // 右輪超過
-    bool R_under = R_error < -TOLERANCE; // 右輪未達
-
-    // 動態計算調整速度
-    int L_adjustSpeed = map(abs(L_error), TOLERANCE, 100, L_MIN_SPEED, 50);
-    L_adjustSpeed = constrain(L_adjustSpeed, L_MIN_SPEED, 50);
-    int R_adjustSpeed = map(abs(R_error), TOLERANCE, 100, R_MIN_SPEED, -50);
-    R_adjustSpeed = constrain(R_adjustSpeed, R_MIN_SPEED, -50);
-
-    // 根據各輪狀態同時調整
-    int L_speed = 0;
-    int R_speed = 0;
-
-    // 左輪修正
-    if (L_over)
-      L_speed = -L_adjustSpeed; // 超過 → 反轉
-    else if (L_under)
-      L_speed = L_adjustSpeed; // 未達 → 正轉
-
-    // 右輪修正
-    if (R_over)
-      R_speed = -R_adjustSpeed; // 超過 → 反轉
-    else if (R_under)
-      R_speed = R_adjustSpeed; // 未達 → 正轉
-
-    motor(L_speed, R_speed);
-    delay(30);
-    // stop();
-    // delay(10);
-    attempts++;
+    tft.print(static_cast<int>(sensors.humidityPct));
+    tft.print(" %");
   }
-}
-
-// ============ 伺服馬達控制函式 ============
-// SG90 伺服馬達原理：PWM 脈寬 1ms~2ms，對應角度 0~180°
-// write(角度) 直接設定目標角度，硬體自動尋位
-
-void arm_up()
-{
-  // 寫入 ARM_UP 角度，使手臂升起
-  arm.write(ARM_UP);
-}
-
-void arm_down()
-{
-  // 寫入 ARM_DOWN 角度，使手臂下降
-  arm.write(ARM_DOWN);
-}
-void arm_down_slow()
-{
-  // 寫入 ARM_DOWN 角度，使手臂下降
-  // 慢慢往下放
-  arm.write(70);
-  delay(50);
-}
-
-void claw_open()
-{
-  // 寫入 CLAW_OPEN 角度，使爪子開啟
-  claw.write(CLAW_OPEN);
-}
-
-void claw_close()
-{
-  // 寫入 CLAW_CLOSE 角度，使爪子關閉
-  claw.write(CLAW_CLOSE);
-}
-
-void pickup_object()
-{
-  // 撿取物體的完整動作序列
-
-  claw_close(); // 夾爪子
-  delay(500);
-  arm_up(); // 抬起手臂
-  delay(100);
-}
-
-void release_object()
-{
-  arm_down_slow(); // 慢慢放下手臂
-  delay(200);
-  claw_open(); // 張爪子
-  delay(300);
-}
-
-void prepare_pickup()
-{
-  // 打開爪子並且降下手臂，準備撿取物體
-  claw_open(); // 張爪子
-  // delay(300);
-  arm_down(); // 放下手臂
-  // delay(300);
-}
-
-// ============ 攝像頭伺服控制函式 ============
-// 控制攝像頭視角方向，用於觀察不同角度的環境
-
-void camera_front()
-{
-  //* 攝像頭轉向正前方（90°）
-  camera.write(CAMERA_FRONT);
-}
-
-void camera_left()
-{
-  //* 攝像頭轉向左側（170°）
-  camera.write(CAMERA_LEFT);
-}
-
-// ============ 測試函式 ============
-// 用於驗證硬體是否正常工作
-
-// ============ 速度閉環控制函式 ============
-// 原理：不再設定固定 PWM，而是設定「目標速度」
-//       程式會根據實際速度動態調整 PWM
-//       這樣不管電池電量如何，都能維持相同的實際速度
-
-// 全域變數：儲存當前左右輪的 PWM 值（供閉環控制累加調整）
-float L_pwm = 0; // 左輪當前 PWM（0~255）
-float R_pwm = 0; // 右輪當前 PWM（0~255）
-
-void speed_control(float L_target, float R_target)
-{
-  //* 速度閉環控制：根據目標速度動態調整 PWM
-  // ===== 速度閉環控制（單次呼叫）=====
-  // 輸入：L_target = 左輪目標速度（c/週期）
-  //       R_target = 右輪目標速度（c/週期）
-  // 原理：比較「目標速度」與「實際速度」的差異（誤差）
-  //       根據誤差調整 PWM：
-  //       - 實際速度 < 目標 → 加大 PWM
-  //       - 實際速度 > 目標 → 減小 PWM
-
-  // --- 記錄起始計數 ---
-  long L_start = leftEncoder.getCount();
-  long R_start = rightEncoder.getCount();
-
-  // --- 等待一個控制週期 ---
-  delay(SPEED_CONTROL_PERIOD);
-
-  // --- 計算實際速度（這段時間內的計數變化量）---
-  long L_actual = leftEncoder.getCount() - L_start;  // 左輪實際速度
-  long R_actual = rightEncoder.getCount() - R_start; // 右輪實際速度
-
-  // --- 計算誤差（目標 - 實際）---
-  // 正誤差 = 跑太慢，需要加速
-  // 負誤差 = 跑太快，需要減速
-  float L_error = L_target - L_actual;
-  float R_error = R_target - R_actual;
-
-  // --- 根據誤差調整 PWM（比例控制）---
-  // PWM 調整量 = 誤差 × 比例係數（Kp）
-  // Kp 越大，調整越激進；Kp 越小，調整越平緩
-  L_pwm = L_pwm + L_error * SPEED_KP;
-  R_pwm = R_pwm + R_error * SPEED_KP;
-
-  // --- 限制 PWM 範圍（0~255）---
-  L_pwm = constrain(L_pwm, -255, 255);
-  R_pwm = constrain(R_pwm, -255, 255);
-
-  // --- 輸出到馬達 ---
-  motor((int)L_pwm, (int)R_pwm);
-}
-
-void p_fw_v2(int distance)
-{
-  //* 新版前進函式：速度閉環 + 距離減速控制
-  // ===== 新版前進函式（速度閉環 + 同步修正 + 距離減速）=====
-  // 輸入：distance = 目標距離（編碼器計數值，約 0.5mm/count）
-  // 特點：
-  //   1. 速度閉環：根據目標速度動態調整 PWM，不受電量影響
-  //   2. 左右同步：即時修正左右輪差異，保持直線
-  //   3. 距離減速：接近目標時自動減速，避免超距
-  //
-  // ===== 校正流程（請依序進行）=====
-  //
-  // 【步驟 1】測極限速度 → 決定 BASE_SPEED
-  //    - 呼叫 test_max_speed()，記錄左右輪 c/20ms
-  //    - 以較慢的輪子為基準，乘 70~80% 作為 BASE_SPEED
-  //    - 例：左輪 85、右輪 88 → BASE_SPEED = 85 * 0.7 ≈ 60
-  //
-  // 【步驟 2】關閉 SYNC_KP → 單獨調 SPEED_KP
-  //    - 先把 SYNC_KP 設為 0（排除左右同步的干擾）
-  //    - 觀察車子運動是否平順（不抖、不頓）
-  //    - 若一頓一頓 → SPEED_KP 太大，往下調（例：5.0 → 0.5 → 0.1）
-  //    - 若反應太慢 → SPEED_KP 太小，往上調
-  //    - 目標：平順加速、穩定巡航
-  //
-  // 【步驟 3】調 MIN_SPEED（從低往高調）
-  //    - 觀察減速階段是否「停了又動」（速度降太低，馬達停轉再啟動）
-  //    - 若有此現象 → MIN_SPEED 太低，往上調（例：10 → 20 → 30）
-  //    - 目標：減速過程平滑連續，不會中途停頓
-  //
-  // 【步驟 4】調 TOLERANCE（補償慣性超距）
-  //    - 讓車跑完後，讀取編碼器計數，看超過目標多少
-  //    - 若超距 50 → TOLERANCE 設 50（提早停止補償慣性）
-  //    - 可同時調 DECEL_START：提早減速 = 減少超距
-  //
-  // 【步驟 5】開啟 SYNC_KP → 調到走直線不晃(尚未完成)
-  //    - 確認步驟 2-4 完成後，將 SYNC_KP 設為小值（例：0.1）
-  //    - 若走歪 → 加大 SYNC_KP
-  //    - 若左右晃動 → SYNC_KP 太大，調小
-  //    - 目標：直線行駛，不偏移也不晃
-  //
-  // ===== 參數說明 =====
-
-  // --- 參數設定（根據上述流程校正後的值）---
-  // 實測極限：左輪 85 c/20ms、右輪 88 c/20ms
-  // 以較慢的左輪為基準，設定 70%（保守）
-  //? 調參：根據 test_max_speed() 結果調整，取較慢輪子的 70%
-  const float BASE_SPEED = 60.0; // 基礎目標速度（c/週期），約 70% 極限
-  //? 調參：逐步增加直到輪子剛好能轉動（避免馬達死區）
-  const float MIN_SPEED = 20.0; // 最低目標速度（c/週期），需高於馬達死區
-  //? 調參：提早減速可減少超距但增加時間
-  const float DECEL_START = 0.6; // 開始減速的進度（0.6 = 走 60% 後開始減速）
-  const int TOLERANCE = 50;      // 到達容差（補償慣性超距）
-  // const float SYNC_KP = 0.1;  // 【步驟 5】左右同步修正係數（目前關閉）
-
-  // --- 清除編碼器 ---
-  leftEncoder.clearCount();
-  rightEncoder.clearCount();
-
-  // --- 重置 PWM 累積值 ---
-  L_pwm = 50; // 給一個初始 PWM，加速啟動
-  R_pwm = 50;
-
-  // --- 主控制迴圈 ---
-  while (true)
+  else
   {
-    // 讀取當前計數（用於計算進度）
-    long L_count = leftEncoder.getCount();
-    long R_count = rightEncoder.getCount();
-    long avgCount = (L_count + R_count) / 2; // 平均計數（代表行進距離）
+    tft.print("--");
+  }
 
-    // === 終止條件：到達目標 ===
-    if (avgCount >= distance - TOLERANCE)
+  tft.fillRoundRect(10, 86, 140, 28, 4, COLOR_PANEL);
+  tft.setCursor(16, 94);
+  tft.print("Light: ");
+  tft.print(sensors.lightPct);
+  tft.print("%  Raw:");
+  tft.print(sensors.lightRaw);
+
+  tft.setTextColor(COLOR_DIM);
+  tft.setCursor(10, 104);
+  tft.print("D:");
+  tft.print(storageService.darkRaw());
+  tft.print(" B:");
+  tft.print(storageService.brightRaw());
+
+  tft.setTextColor(COLOR_DIM);
+  tft.setCursor(14, kFooterY);
+  tft.print("B1 dark  B2 bright");
+
+  drawSensorSummaryOled(sensors, "SENSORS");
+}
+
+void renderSelfTest()
+{
+  if (kBypassPasswordForButtonTest)
+  {
+    tft.fillScreen(COLOR_BG);
+    drawCenteredText(tft, 10, "BUTTON TEST", COLOR_TEXT, 1);
+    tft.setTextSize(1);
+    tft.setTextColor(COLOR_TEXT);
+
+    tft.setCursor(8, 28);
+    tft.print("M1:");
+    tft.print(buttonPressLevelLabel(kBtn1Wiring));
+    tft.setCursor(88, 28);
+    tft.print("M2:");
+    tft.print(buttonPressLevelLabel(kBtn2Wiring));
+
+    tft.setCursor(8, 44);
+    tft.print("P1:");
+    tft.print(pinLevelLabel(latestInputSnapshot.btn1RawHigh));
+    tft.setCursor(88, 44);
+    tft.print("P2:");
+    tft.print(pinLevelLabel(latestInputSnapshot.btn2RawHigh));
+
+    tft.setCursor(8, 60);
+    tft.print("S1:");
+    tft.print(latestInputSnapshot.btn1Down ? "DOWN" : "UP  ");
+    tft.setCursor(88, 60);
+    tft.print("S2:");
+    tft.print(latestInputSnapshot.btn2Down ? "DOWN" : "UP");
+
+    tft.setCursor(8, 76);
+    tft.print("K1:");
+    tft.print(selfTestBtn1Seen ? "OK" : "..");
+    tft.setCursor(88, 76);
+    tft.print("K2:");
+    tft.print(selfTestBtn2Seen ? "OK" : "..");
+
+    drawCenteredText(tft, 98, selfTestReport.buttonsOk ? "BUTTONS READY" : "PRESS BOTH", selfTestReport.buttonsOk ? COLOR_GOOD : COLOR_WARN, 1);
+
+    tft.setTextColor(selfTestReport.buttonsOk ? COLOR_GOOD : COLOR_WARN);
+    tft.setTextColor(COLOR_DIM);
+    drawCenteredText(tft, 116, selfTestReport.buttonsOk ? "H1 RETEST  H2 GAME" : "CHECK M/P/S/K", COLOR_DIM, 1);
+
+    if (oledReady)
     {
-      break;
+      oled.clearDisplay();
+      oled.setTextSize(1);
+      oled.setTextColor(SSD1306_WHITE);
+      oled.setCursor(0, 0);
+      oled.print("BUTTON TEST");
+      oled.setCursor(0, 14);
+      oled.print("M1:");
+      oled.print(buttonPressLevelLabel(kBtn1Wiring));
+      oled.print(" M2:");
+      oled.print(buttonPressLevelLabel(kBtn2Wiring));
+      oled.setCursor(0, 28);
+      oled.print("P1:");
+      oled.print(pinLevelLabel(latestInputSnapshot.btn1RawHigh)[0]);
+      oled.print(" P2:");
+      oled.print(pinLevelLabel(latestInputSnapshot.btn2RawHigh)[0]);
+      oled.setCursor(0, 42);
+      oled.print("S1:");
+      oled.print(latestInputSnapshot.btn1Down ? "D" : "U");
+      oled.print(" S2:");
+      oled.print(latestInputSnapshot.btn2Down ? "D" : "U");
+      oled.setCursor(0, 54);
+      oled.print(selfTestReport.buttonsOk ? "H2 GAME" : "PRESS BOTH");
+      oled.display();
     }
+    return;
+  }
 
-    // === 計算目標速度（距離減速）===
-    float progress = (float)avgCount / distance; // 進度 0.0 ~ 1.0
+  const SensorSnapshot &sensors = sensorService.snapshot();
+  const float lightVoltage = adcToVoltage(sensors.lightRaw);
+  const char *tempStatus = sensors.dhtOk ? rangeStatusLabel(sensors.temperatureC, 15.0f, 35.0f) : "FAIL";
+  const char *humidityStatus = sensors.dhtOk ? rangeStatusLabel(sensors.humidityPct, 30.0f, 85.0f) : "FAIL";
+  const char *lightStatus = (sensors.lightPct < 20) ? "LOW" : ((sensors.lightPct > 95) ? "HIGH" : "OK");
+  const uint16_t tempColor = sensors.dhtOk ? rangeStatusColor(sensors.temperatureC, 15.0f, 35.0f) : COLOR_DANGER;
+  const uint16_t humidityColor = sensors.dhtOk ? rangeStatusColor(sensors.humidityPct, 30.0f, 85.0f) : COLOR_DANGER;
+  const uint16_t lightColor = (sensors.lightPct < 20 || sensors.lightPct > 95) ? COLOR_WARN : COLOR_GOOD;
 
-    float targetSpeed;
-    if (progress < DECEL_START)
+  tft.fillScreen(COLOR_BG);
+  drawCenteredText(tft, 10, "SELF-TEST", COLOR_TEXT, 1);
+  tft.setTextSize(1);
+
+  tft.setCursor(8, 24);
+  tft.setTextColor(COLOR_TEXT);
+  tft.print("TFT:");
+  tft.setTextColor(selfTestReport.tftOk ? COLOR_GOOD : COLOR_DANGER);
+  tft.print(selfTestReport.tftOk ? "OK" : "FAIL");
+  tft.setCursor(64, 24);
+  tft.setTextColor(COLOR_TEXT);
+  tft.print("OLED:");
+  tft.setTextColor(selfTestReport.oledOk ? COLOR_GOOD : COLOR_DANGER);
+  tft.print(selfTestReport.oledOk ? "OK" : "FAIL");
+
+  tft.setCursor(8, 36);
+  tft.setTextColor(COLOR_TEXT);
+  tft.print("PCA:");
+  tft.setTextColor(selfTestReport.pcaOk ? COLOR_GOOD : COLOR_DANGER);
+  tft.print(selfTestReport.pcaOk ? "OK" : "FAIL");
+  tft.setCursor(64, 36);
+  tft.setTextColor(COLOR_TEXT);
+  tft.print("LDR:");
+  tft.setTextColor(selfTestReport.ldrState == LdrState::Warning ? COLOR_WARN : COLOR_GOOD);
+  tft.print(selfTestReport.ldrState == LdrState::Warning ? "WARN" : "OK");
+
+  tft.setCursor(8, 50);
+  tft.setTextColor(COLOR_TEXT);
+  tft.print("T:");
+  if (sensors.dhtOk)
+  {
+    tft.print(static_cast<int>(sensors.temperatureC));
+    tft.print("C ");
+  }
+  else
+  {
+    tft.print("-- ");
+  }
+  tft.setTextColor(tempColor);
+  tft.print(tempStatus);
+
+  tft.setCursor(8, 62);
+  tft.setTextColor(COLOR_TEXT);
+  tft.print("H:");
+  if (sensors.dhtOk)
+  {
+    tft.print(static_cast<int>(sensors.humidityPct));
+    tft.print("% ");
+  }
+  else
+  {
+    tft.print("-- ");
+  }
+  tft.setTextColor(humidityColor);
+  tft.print(humidityStatus);
+
+  tft.setCursor(8, 74);
+  tft.setTextColor(COLOR_TEXT);
+  tft.print("L:");
+  tft.print(sensors.lightPct);
+  tft.print("% ");
+  tft.setTextColor(lightColor);
+  tft.print(lightStatus);
+
+  tft.setCursor(8, 86);
+  tft.setTextColor(COLOR_TEXT);
+  tft.print("V:");
+  tft.print(lightVoltage, 2);
+  tft.print("V Raw:");
+  tft.print(sensors.lightRaw);
+
+  tft.setCursor(8, 98);
+  tft.setTextColor(COLOR_TEXT);
+  tft.print("B1 GPIO");
+  tft.print(Hardware.btn1Pin);
+  tft.print(":");
+  tft.setTextColor(selfTestBtn1Seen ? COLOR_GOOD : COLOR_WARN);
+  tft.print(selfTestBtn1Seen ? "OK" : "..");
+
+  tft.setCursor(8, 108);
+  tft.setTextColor(COLOR_TEXT);
+  tft.print("B2 GPIO");
+  tft.print(Hardware.btn2Pin);
+  tft.print(":");
+  tft.setTextColor(selfTestBtn2Seen ? COLOR_GOOD : COLOR_WARN);
+  tft.print(selfTestBtn2Seen ? "OK" : "..");
+
+  tft.setTextColor(COLOR_DIM);
+  tft.setCursor(22, kFooterY);
+  tft.print("H1 back  H2 rerun");
+
+  if (oledReady)
+  {
+    oled.clearDisplay();
+    oled.setTextSize(1);
+    oled.setTextColor(SSD1306_WHITE);
+    oled.setCursor(0, 0);
+    oled.print("SELF-TEST");
+    oled.setCursor(0, 14);
+    oled.print("T:");
+    if (sensors.dhtOk)
     {
-      targetSpeed = BASE_SPEED; // 尚未到減速點 → 全速
+      oled.print(static_cast<int>(sensors.temperatureC));
+      oled.print(" ");
     }
     else
     {
-      // 線性減速：用 map 將進度映射到速度
-      // map(值, 原始最小, 原始最大, 目標最小, 目標最大)
-      long decelStartCount = distance * DECEL_START;                                 // 開始減速的計數值
-      targetSpeed = map(avgCount, decelStartCount, distance, BASE_SPEED, MIN_SPEED); // map將目前count映射到逐漸變慢的速度
+      oled.print("-- ");
     }
-
-    // === 呼叫速度閉環控制（左右輪目標速度相同）===
-    speed_control(targetSpeed, targetSpeed);
-
-    // 【步驟 5】若要開啟左右同步修正，取消以下註解：
-    // long diffError = L_count - R_count;  // 左輪 - 右輪
-    // float correction = diffError * SYNC_KP;
-    // speed_control(targetSpeed - correction, targetSpeed + correction);
-  }
-
-  // --- 停止 ---
-  stop();
-  L_pwm = 0;
-  R_pwm = 0;
-}
-void p_bw_v2(int distance)
-{
-  // ===== 新版前進函式（速度閉環 + 同步修正 + 距離減速）=====
-  // 輸入：distance = 目標距離（編碼器計數）
-  // 特點：
-  //   1. 速度閉環：根據目標速度動態調整 PWM，不受電量影響
-  //   2. 左右同步：即時修正左右輪差異，保持直線
-  //   3. 距離減速：接近目標時自動減速，避免超距
-  //
-  // ===== 校正流程（請依序進行）=====
-  //
-  // 【步驟 1】測極限速度 → 決定 BASE_SPEED
-  //    - 呼叫 test_max_speed()，記錄左右輪 c/20ms
-  //    - 以較慢的輪子為基準，乘 70~80% 作為 BASE_SPEED
-  //    - 例：左輪 85、右輪 88 → BASE_SPEED = 85 * 0.7 ≈ 60
-  //
-  // 【步驟 2】關閉 SYNC_KP → 單獨調 SPEED_KP
-  //    - 先把 SYNC_KP 設為 0（排除左右同步的干擾）
-  //    - 觀察車子運動是否平順（不抖、不頓）
-  //    - 若一頓一頓 → SPEED_KP 太大，往下調（例：5.0 → 0.5 → 0.1）
-  //    - 若反應太慢 → SPEED_KP 太小，往上調
-  //    - 目標：平順加速、穩定巡航
-  //
-  // 【步驟 3】調 MIN_SPEED（從低往高調）
-  //    - 觀察減速階段是否「停了又動」（速度降太低，馬達停轉再啟動）
-  //    - 若有此現象 → MIN_SPEED 太低，往上調（例：10 → 20 → 30）
-  //    - 目標：減速過程平滑連續，不會中途停頓
-  //
-  // 【步驟 4】調 TOLERANCE（補償慣性超距）
-  //    - 讓車跑完後，讀取編碼器計數，看超過目標多少
-  //    - 若超距 50 → TOLERANCE 設 50（提早停止補償慣性）
-  //    - 可同時調 DECEL_START：提早減速 = 減少超距
-  //
-  // 【步驟 5】開啟 SYNC_KP → 調到走直線不晃(尚未完成)
-  //    - 確認步驟 2-4 完成後，將 SYNC_KP 設為小值（例：0.1）
-  //    - 若走歪 → 加大 SYNC_KP
-  //    - 若左右晃動 → SYNC_KP 太大，調小
-  //    - 目標：直線行駛，不偏移也不晃
-  //
-  // ===== 參數說明 =====
-
-  // --- 參數設定（根據上述流程校正後的值）---
-  // 實測極限：左輪 85 c/20ms、右輪 88 c/20ms
-  // 以較慢的左輪為基準，設定 70%（保守）
-  const float BASE_SPEED = -60.0; // 基礎目標速度（c/週期），約 70% 極限
-  const float MIN_SPEED = -20.0;  // 最低目標速度（c/週期），需高於馬達死區
-  const float DECEL_START = 0.6;  // 開始減速的進度（0.6 = 走 60% 後開始減速）
-  const int TOLERANCE = 100;      // 到達容差（補償慣性超距）
-  // const float SYNC_KP = 0.1;  // 【步驟 5】左右同步修正係數（目前關閉）
-
-  // --- 清除編碼器 ---
-  leftEncoder.clearCount();
-  rightEncoder.clearCount();
-
-  // --- 重置 PWM 累積值 ---
-  L_pwm = -50; // 給一個初始 PWM，加速啟動
-  R_pwm = -50;
-
-  // --- 主控制迴圈 ---
-  while (true)
-  {
-    // 讀取當前計數（用於計算進度）
-    long L_count = leftEncoder.getCount();
-    long R_count = rightEncoder.getCount();
-    long avgCount = abs((L_count + R_count)) / 2; // 平均計數（代表行進距離）
-
-    // === 終止條件：到達目標 ===
-    if (avgCount >= distance - TOLERANCE)
+    oled.print(tempStatus);
+    oled.setCursor(64, 14);
+    oled.print("H:");
+    if (sensors.dhtOk)
     {
-      break;
-    }
-
-    // === 計算目標速度（距離減速）===
-    float progress = (float)avgCount / distance; // 進度 0.0 ~ 1.0
-
-    float targetSpeed;
-    if (progress < DECEL_START)
-    {
-      targetSpeed = BASE_SPEED; // 尚未到減速點 → 全速
+      oled.print(static_cast<int>(sensors.humidityPct));
+      oled.print(" ");
     }
     else
     {
-      // 線性減速：用 map 將進度映射到速度
-      // map(值, 原始最小, 原始最大, 目標最小, 目標最大)
-      long decelStartCount = distance * DECEL_START;                                 // 開始減速的計數值
-      targetSpeed = map(avgCount, decelStartCount, distance, BASE_SPEED, MIN_SPEED); // map將目前count映射到逐漸變慢的速度
+      oled.print("-- ");
     }
-
-    // === 呼叫速度閉環控制（左右輪目標速度相同）===
-    speed_control(targetSpeed, targetSpeed);
-
-    // 【步驟 5】若要開啟左右同步修正，取消以下註解：
-    // long diffError = L_count - R_count;  // 左輪 - 右輪
-    // float correction = diffError * SYNC_KP;
-    // speed_control(targetSpeed - correction, targetSpeed + correction);
-  }
-
-  // --- 停止 ---
-  stop();
-  L_pwm = 0;
-  R_pwm = 0;
-}
-
-// ============ 循跡功能 ============
-// 利用紅外線陣列自動跟隨黑線行進
-
-void trail()
-{
-  // 判斷中線是否在黑線上
-  if (IR_M_read() == 1) // 中線在黑線上，方向正確
-  {
-    // 檢查左右偏差，微調方向
-    if (IR_L_read() == 1 && IR_R_read() == 0) // 向左偏
-    {
-      s_Left();
-    }
-    else if (IR_L_read() == 0 && IR_R_read() == 1) // 向右偏
-    {
-      s_Right();
-    }
-    else // 左右平衡，直線前進
-    {
-      forward();
-    }
-  }
-  else // 中線不在黑線上，需要大幅轉向
-  {
-    // 激進轉向
-    if (IR_L_read() == 1 && IR_R_read() == 0) // 黑線在左邊
-    {
-      m_Left();
-    }
-    else if (IR_L_read() == 0 && IR_R_read() == 1) // 黑線在右邊
-    {
-      m_Right();
-    }
+    oled.print(humidityStatus);
+    oled.setCursor(0, 28);
+    oled.print("L:");
+    oled.print(sensors.lightPct);
+    oled.print("% ");
+    oled.print(lightStatus);
+    oled.setCursor(64, 28);
+    oled.print("V:");
+    oled.print(lightVoltage, 1);
+    oled.setCursor(0, 42);
+    oled.print("B1:");
+    oled.print(Hardware.btn1Pin);
+    oled.print(selfTestBtn1Seen ? " OK" : " ..");
+    oled.setCursor(64, 42);
+    oled.print("B2:");
+    oled.print(Hardware.btn2Pin);
+    oled.print(selfTestBtn2Seen ? " OK" : " ..");
+    oled.setCursor(0, 54);
+    oled.print("DSP/I2C:");
+    oled.print(selfTestReport.tftOk ? "T" : "x");
+    oled.print(selfTestReport.oledOk ? "O" : "x");
+    oled.print(selfTestReport.pcaOk ? "P" : "x");
+    oled.display();
   }
 }
-void trail_to_cross()
+
+void renderGamesMenu()
 {
-  // 循跡到十字路口（任一感測器讀到黑線即停止）
-  while (true)
+  const GameDescriptor &selected = kGameDescriptors[gamesMenuIndex];
+  tft.fillScreen(COLOR_BG);
+  drawCenteredText(tft, 10, "GAMES", COLOR_TEXT, 1);
+
+  const int start = max(0, static_cast<int>(gamesMenuIndex) - 2);
+  const int end = min(static_cast<int>(GameId::Count), start + 4);
+  int row = 0;
+  for (int i = start; i < end; ++i)
   {
-
-    if ((IR_L_read() == 1) && (IR_R_read() == 1) && (IR_M_read() == 1))
+    const int y = 22 + row * 18;
+    const bool active = i == gamesMenuIndex;
+    tft.fillRoundRect(8, y, hw::tftWidth - 16, 14, 4, active ? COLOR_PANEL : COLOR_BG);
+    tft.drawRoundRect(8, y, hw::tftWidth - 16, 14, 4, active ? COLOR_ACCENT : COLOR_DIM);
+    tft.setCursor(14, y + 3);
+    tft.setTextColor(active ? COLOR_TEXT : COLOR_DIM);
+    tft.print(kGameDescriptors[i].title);
+    if (!kGameDescriptors[i].implemented)
     {
+      tft.setCursor(112, y + 3);
+      tft.print("Soon");
+    }
+    ++row;
+  }
 
-      break; // 任一感測器讀到黑線，停止循跡
+  tft.fillRect(8, 102, hw::tftWidth - 16, 24, COLOR_BG);
+  tft.setTextColor(COLOR_TEXT);
+  tft.setCursor(12, 106);
+  tft.print(selected.title);
+  if (gamesDifficultyMode)
+  {
+    tft.setTextColor(COLOR_WARN);
+    tft.setCursor(12, kFooterY);
+    tft.print("Diff:");
+    tft.print(selected.difficultyNames[selectedLaunchDifficulty[gamesMenuIndex]]);
+  }
+  else if (selected.difficultyCount > 1)
+  {
+    tft.setTextColor(COLOR_DIM);
+    tft.setCursor(12, 106);
+    tft.print("Diff:");
+    tft.print(selected.difficultyNames[selectedLaunchDifficulty[gamesMenuIndex]]);
+    tft.setCursor(12, kFooterY);
+    tft.print("B1 diff  B2 OK");
+  }
+  else if (!selected.implemented && gamesShowComingSoon && gamesToastUntilMs > millis())
+  {
+    tft.setTextColor(COLOR_WARN);
+    tft.setCursor(12, kFooterY);
+    tft.print("Coming Soon");
+  }
+  else
+  {
+    tft.setTextColor(COLOR_DIM);
+    tft.setCursor(12, kFooterY);
+    tft.print("B1 next  B2 OK");
+  }
+
+  drawSensorSummaryOled(sensorService.snapshot(), "GAMES");
+}
+
+void renderLeaderboards()
+{
+  const GameDescriptor &selected = kGameDescriptors[leaderboardIndex];
+  const uint8_t difficulty = selectedLeaderboardDifficulty[leaderboardIndex];
+
+  tft.fillScreen(COLOR_BG);
+  drawCenteredText(tft, 10, "SCORES", COLOR_TEXT, 1);
+  tft.setCursor(8, 24);
+  tft.setTextColor(COLOR_TEXT);
+  tft.print(selected.title);
+  tft.setCursor(8, 36);
+  tft.setTextColor(COLOR_DIM);
+  tft.print("Diff: ");
+  tft.print(selected.difficultyNames[difficulty]);
+
+  for (uint8_t i = 0; i < kTopScores; ++i)
+  {
+    const LeaderboardEntry entry = storageService.loadEntry(selected.id, difficulty, i);
+    const int y = 50 + i * 20;
+    tft.fillRoundRect(8, y, hw::tftWidth - 16, 16, 4, COLOR_PANEL);
+    tft.setCursor(14, y + 4);
+    tft.setTextColor(COLOR_TEXT);
+    tft.print(i + 1);
+    tft.print(".");
+    if (entry.score == 0 && entry.durationMs == 0)
+    {
+      tft.print(" --");
     }
     else
     {
-
-      trail();
+      tft.print(" ");
+      tft.print(entry.score);
+      tft.setCursor(78, y + 4);
+      tft.print(entry.durationMs / 1000);
+      tft.print("s");
     }
+  }
+
+  tft.setTextColor(COLOR_DIM);
+  tft.setCursor(14, kFooterY);
+  tft.print("B1 next  B2 diff");
+
+  if (oledReady)
+  {
+    oled.clearDisplay();
+    oled.setTextSize(1);
+    oled.setTextColor(SSD1306_WHITE);
+    oled.setCursor(0, 0);
+    oled.print("LEADERBOARD");
+    oled.setCursor(0, 14);
+    oled.print(selected.title);
+    oled.setCursor(0, 26);
+    oled.print("Diff:");
+    oled.print(selected.difficultyNames[difficulty]);
+    for (uint8_t i = 0; i < kTopScores; ++i)
+    {
+      const LeaderboardEntry entry = storageService.loadEntry(selected.id, difficulty, i);
+      oled.setCursor(0, 38 + i * 8);
+      oled.print(i + 1);
+      oled.print(":");
+      oled.print(entry.score);
+    }
+    oled.display();
   }
 }
 
-void turn_to_grab()
+void renderGameResult()
 {
-  trail_to_cross();
-  stop();
-  delay(300);
-  detected_color = color_detect();
-  pickup_object();
-  p_fw_v2(300);
-  stop();
-  delay(100);
-  //! 開始迴轉
-  ninety_leftdegree_turn();
+  const GameDescriptor &descriptor = descriptorFor(activeGameResult.gameId);
+  tft.fillScreen(COLOR_BG);
+  drawCenteredText(tft, 14, activeGameResult.completed ? "RESULT: WIN" : "RESULT: END", activeGameResult.completed ? COLOR_GOOD : COLOR_WARN, 1);
+  tft.setCursor(18, 36);
+  tft.setTextColor(COLOR_TEXT);
+  tft.print(descriptor.title);
+  tft.setCursor(18, 50);
+  tft.print("Score: ");
+  tft.print(activeGameResult.score);
+  tft.setCursor(18, 64);
+  tft.print("Time : ");
+  tft.print(activeGameResult.durationMs / 1000);
+  tft.print("s");
+  tft.setCursor(18, 78);
+  if (activeGameRank >= 0)
+  {
+    tft.print("Rank : #");
+    tft.print(activeGameRank + 1);
+  }
+  else
+  {
+    tft.print("Rank : No Top 3");
+  }
 
-  //! 迴轉完畢
+  const uint16_t retryColor = (resultActionIndex == 0) ? COLOR_ACCENT : COLOR_DIM;
+  const uint16_t menuColor = (resultActionIndex == 1) ? COLOR_ACCENT : COLOR_DIM;
+  tft.drawRoundRect(18, 90, 52, 20, 4, retryColor);
+  tft.drawRoundRect(88, 90, 52, 20, 4, menuColor);
+  tft.setTextColor(COLOR_TEXT);
+  tft.setCursor(32, 97);
+  tft.print("Retry");
+  tft.setCursor(105, 97);
+  tft.print("Menu");
+
+  tft.setTextColor(COLOR_DIM);
+  tft.setCursor(14, kFooterY);
+  tft.print("B1 switch  B2 OK");
+
+  drawSensorSummaryOled(sensorService.snapshot(), "RESULT");
 }
 
-void ninety_leftdegree_turn()
+void renderGameFrame()
 {
-  b_Left();
-  delay(200);
-  while (true)
-  {
-    if (IR_LL_read() == 1)
-    {
-      break;
-    }
-    else
-    {
-      b_Left();
-    }
-  }
-}
-void come_back()
-{
-
-  trail_to_cross();
-  stop();
-  delay(300);
-  p_fw_v2(400);
-  stop();
-  delay(300);
-}
-void red_release()
-{
-  ninety_leftdegree_turn();
-  for (int i = 0; i < 1000; i++)
-  {
-    trail();
-    delay(1);
-  }
-  stop();
-  delay(300);
-  p_bw_v2(800);
-  motor(0, -40);
-  delay(300);
-  stop();
-  delay(300);
-  while (true)
-  {
-    if ((IR_RR_read() == 1))
-    {
-      break; // 任一感測器讀到黑線，停止循跡
-    }
-    else
-    {
-
-      motor(-30, -50); // 微調轉向，確保對齊十字路口
-    }
-  }
-
-  stop();
-  delay(50);
-  p_fw_v2(600);
-  stop();
-  delay(300);
-  release_object();
-  stop();
-  delay(300);
-  p_bw_v2(200);
-  stop();
-  delay(300);
-  ninety_leftdegree_turn();
-  trail_to_cross();
-  p_fw_v2(100);
-  stop();
-  delay(50);
-  for (int i = 0; i < 200; i++)
-  {
-    trail();
-    delay(1);
-  }
-
-  while (IR_LL_read() == 1)
-  {
-    /* code */
-  }
-
-  while (true)
-  {
-    if ((IR_LL_read() == 1))
-    {
-      p_fw_v2(200);
-
-      ninety_leftdegree_turn();
-      break; // 任一感測器讀到黑線，停止循跡
-    }
-    else
-    {
-
-      trail();
-    }
-  }
-  stop();
-  delay(300);
-  trail_to_cross();
-  stop();
-}
-void orange_release()
-{
-  ninety_leftdegree_turn();
-  for (int i = 0; i < 2000; i++)
-  {
-    trail();
-    delay(1);
-  }
-  stop();
-  delay(300);
-  p_bw_v2(600);
-  motor(0, -40);
-  delay(120);
-  stop();
-  p_fw_v2(150);
-  stop();
-  delay(300);
-  while (true)
-  {
-    if ((IR_R_read() == 1))
-    {
-      break; // 任一感測器讀到黑線，停止循跡
-    }
-    else
-    {
-
-      motor(-30, -50); // 微調轉向，確保對齊十字路口
-    }
-  }
-
-  stop();
-  delay(50);
-  p_fw_v2(650);
-  stop();
-  delay(320);
-  release_object();
-  stop();
-  delay(300);
-  p_bw_v2(300);
-  stop();
-  delay(300);
-  ninety_leftdegree_turn();
-  stop();
-  delay(300);
-  p_fw_v2(200);
-  stop();
-  delay(300);
-  trail_to_cross();
-  p_fw_v2(100);
-  stop();
-  delay(50);
-  for (int i = 0; i < 200; i++)
-  {
-    trail();
-    delay(1);
-  }
-
-  while (IR_LL_read() == 1)
-  {
-    /* code */
-  }
-  while (true)
-  {
-    if ((IR_LL_read() == 1))
-    {
-      p_fw_v2(200);
-
-      ninety_leftdegree_turn();
-      break; // 任一感測器讀到黑線，停止循跡
-    }
-    else
-    {
-
-      trail();
-    }
-  }
-  stop();
-  delay(300);
-  trail_to_cross();
-  stop();
-}
-void green_realease()
-{
-  ninety_leftdegree_turn();
-  for (int i = 0; i < 2900; i++)
-  {
-    trail();
-    delay(1);
-  }
-  stop();
-  delay(300);
-  p_bw_v2(800);
-  stop();
-  delay(400);
-  motor(0, -40);
-  delay(150);
-  stop();
-  delay(50);
-  while (true)
-  {
-
-    if ((IR_L_read() == 1))
-    {
-      break; // 任一感測器讀到黑線，停止循跡
-    }
-    else
-    {
-
-      motor(-30, -50); // 微調轉向，確保對齊十字路口
-    }
-  }
-
-  stop();
-  delay(50);
-  p_fw_v2(600);
-  stop();
-  delay(350);
-  release_object();
-  stop();
-  delay(300);
-  p_bw_v2(300);
-  stop();
-  delay(325);
-  ninety_leftdegree_turn();
-  stop();
-  delay(250);
-  trail_to_cross();
-  p_fw_v2(100);
-  stop();
-  delay(50);
-  for (int i = 0; i < 200; i++)
-  {
-    trail();
-    delay(1);
-  }
-
-  while (IR_LL_read() == 1)
-  {
-    /* code */
-  }
-  while (true)
-  {
-    if ((IR_LL_read() == 1))
-    {
-      p_fw_v2(200);
-
-      ninety_leftdegree_turn();
-      break; // 任一感測器讀到黑線，停止循跡
-    }
-    else
-    {
-
-      trail();
-    }
-  }
-  stop();
-  delay(300);
-  trail_to_cross();
-  stop();
-}
-
-// --- 根據色彩一鍵釋放 ---
-void release_by_color()
-{
-  // 使用已儲存的偵測結果（由 color_detect() 事先設定）
-  if (detected_color == -1)
+  if (activeGame == nullptr)
   {
     return;
   }
 
-  if (detected_color == 1) // 玉米（紅）
+  activeGame->renderTft(tft);
+  if (oledReady)
   {
-    green_realease();
-  }
-  else if (detected_color == 2) // 胡蘿蔔（橙）
-  {
-    orange_release();
-  }
-  else if (detected_color == 3) // 番茄（綠）
-  {
-    red_release();
+    activeGame->renderOledOverlay(oled, sensorService.snapshot());
   }
 }
 
-// ===== 主程式 =====
-// setup()：初始化所有硬體，在上傳後執行一次
-// loop()：主控制迴圈，在 setup() 完成後反覆執行
+void renderToastOverlay(uint32_t nowMs)
+{
+  if (!uiToast.active)
+  {
+    return;
+  }
+
+  if (uiToast.untilMs <= nowMs)
+  {
+    uiToast.active = false;
+    return;
+  }
+
+  tft.fillRoundRect(12, hw::tftHeight - 24, hw::tftWidth - 24, 16, 4, COLOR_PANEL);
+  tft.drawRoundRect(12, hw::tftHeight - 24, hw::tftWidth - 24, 16, 4, uiToast.color);
+  tft.setTextColor(uiToast.color);
+  tft.setTextSize(1);
+  tft.setCursor(18, hw::tftHeight - 20);
+  tft.print(uiToast.message);
+}
+
+void renderFrame(uint32_t nowMs)
+{
+  if (!tftReady)
+  {
+    return;
+  }
+
+  switch (appState)
+  {
+  case AppState::Boot:
+    renderBoot(nowMs);
+    break;
+  case AppState::LockScreen:
+    renderLockScreen();
+    break;
+  case AppState::MainMenu:
+    renderMainMenu();
+    break;
+  case AppState::SensorMonitor:
+    renderSensorMonitor();
+    break;
+  case AppState::SelfTest:
+    renderSelfTest();
+    break;
+  case AppState::GamesMenu:
+    renderGamesMenu();
+    break;
+  case AppState::Leaderboard:
+    renderLeaderboards();
+    break;
+  case AppState::GameRunning:
+    renderGameFrame();
+    break;
+  case AppState::GameResult:
+    renderGameResult();
+    break;
+  }
+
+  renderToastOverlay(nowMs);
+}
 
 void setup()
 {
-  // 初始化序列埠通訊，9600 baud
-  Serial.begin(9600);
+  Serial.begin(115200);
+  randomSeed(micros());
 
-  // --- OLED 初始化 ---
-  oled_init();
+  pinMode(Hardware.tftBl, OUTPUT);
+  digitalWrite(Hardware.tftBl, Hardware.backlightActiveHigh ? HIGH : LOW);
 
-  // --- HuskyLens 初始化 ---
-  // I2C 已在 oled_init() 中初始化，直接連線
-  huskylens_init();
+  inputService.begin();
+  storageService.begin();
+  storageService.load();
+  sensorService.begin(storageService.darkRaw(), storageService.brightRaw());
 
-  // --- 伺服馬達定時器分配 ---
-  // 重要！必須在伺服初始化前執行
-  //! Timer 分配策略：
-  //  Timer 0: arm + claw（機械臂伺服）
-  //  Timer 1: camera（視覺伺服，獨立 Timer 避免干擾）
-  //  Timer 2: 馬達 PWM (LEDC 專用，不可用於伺服)
-  ESP32PWM::allocateTimer(0); // 分配 Timer 0 給 arm 和 claw
-  ESP32PWM::allocateTimer(1); // 分配 Timer 1 給 camera（避免 GPIO25/ADC2 衝突）
+  Wire.begin(Hardware.i2cSda, Hardware.i2cScl);
+  oledReady = oled.begin(SSD1306_SWITCHCAPVCC, Hardware.oledAddr);
 
-  // --- 伺服馬達初始化 ---
-  // 標準 50Hz 伺服馬達，脈寬範圍 500~2400us
-  arm.setPeriodHertz(50);               // 設定頻率 50Hz
-  arm.attach(ARM_PIN, 500, 2400);       // 連結至腳位 14 (使用 Timer 0)
-  claw.setPeriodHertz(50);              // 設定頻率 50Hz
-  claw.attach(CLAW_PIN, 500, 2400);     // 連結至腳位 15 (使用 Timer 0)
-  camera.setPeriodHertz(50);            // 設定頻率 50Hz
-  camera.attach(CAMERA_PIN, 500, 2400); // 連結至腳位 25 (使用 Timer 1)
-
-  // --- 編碼器初始化 ---
-  // 使用 attachHalfQuad()，4X 計數模式，提升精度
-  ESP32Encoder::useInternalWeakPullResistors = puType::up;
-  leftEncoder.attachHalfQuad(LEFT_ENCODER_A, LEFT_ENCODER_B);
-  leftEncoder.clearCount();
-  rightEncoder.attachHalfQuad(RIGHT_ENCODER_A, RIGHT_ENCODER_B);
-  rightEncoder.clearCount();
-
-  // --- 紅外線感測器初始化 ---
-  // 設定 5 個感測器腳位為輸入模式
-  pinMode(IR_LL_PIN, INPUT);
-  pinMode(IR_L_PIN, INPUT);
-  pinMode(IR_M_PIN, INPUT);
-  pinMode(IR_R_PIN, INPUT);
-  pinMode(IR_RR_PIN, INPUT);
-
-  // --- 馬達 PWM 初始化 (Timer 2 的通道 4-7) ---
-  // PWM 設定步驟：1.設定腳位為輸出  2.建立 PWM 通道  3.綁定腳位到通道
-
-  // 左馬達正轉通道（Channel 4, Timer 2）
-  pinMode(MOTOR_L_FWD, OUTPUT);           // 腳位 27 為輸出
-  ledcSetup(CH_L_FWD, PWM_FREQ, PWM_RES); // 通道 4，75kHz，8-bit
-  ledcAttachPin(MOTOR_L_FWD, CH_L_FWD);   // 綁定
-
-  // 左馬達反轉通道（Channel 5, Timer 2）
-  pinMode(MOTOR_L_BWD, OUTPUT);           // 腳位 13 為輸出
-  ledcSetup(CH_L_BWD, PWM_FREQ, PWM_RES); // 通道 5，75kHz，8-bit
-  ledcAttachPin(MOTOR_L_BWD, CH_L_BWD);   // 綁定
-
-  // 右馬達正轉通道（Channel 6, Timer 2）
-  pinMode(MOTOR_R_FWD, OUTPUT);           // 腳位 2 為輸出
-  ledcSetup(CH_R_FWD, PWM_FREQ, PWM_RES); // 通道 6，75kHz，8-bit
-  ledcAttachPin(MOTOR_R_FWD, CH_R_FWD);   // 綁定
-
-  // 右馬達反轉通道（Channel 7, Timer 2）
-  pinMode(MOTOR_R_BWD, OUTPUT);           // 腳位 4 為輸出
-  ledcSetup(CH_R_BWD, PWM_FREQ, PWM_RES); // 通道 7，75kHz，8-bit
-  ledcAttachPin(MOTOR_R_BWD, CH_R_BWD);   // 綁定
-
-  stop(); // 初始化時停止馬達
-          // TODO: 初始化完成後，可呼叫停止函式確保馬達不會亂轉
-
-  //?=====================主程式開始=====================
-  prepare_pickup();
-  p_fw_v2(7800);
-  stop();
-
-  while (IR_L_read() == 0)
+  pcaReady = pwm.begin();
+  if (pcaReady)
   {
-    forward();
+    pwm.setPWMFreq(1000);
   }
-  stop();
+  rgbService.begin(pcaReady);
 
-  p_fw_v2(300);
-  stop();
-  delay(300);
-  ninety_leftdegree_turn();
-  //*==============回到線上準備前往卸貨區的十字入口============*
-  trail_to_cross();
-  p_fw_v2(400);
-  ninety_leftdegree_turn();
-  stop();
-  //*==============到卸貨區的十字入口============*
-  while (IR_LL_read() == 1)
-  {
-    /* code */
-  }
-  while (true)
-  {
-    if ((IR_LL_read() == 1))
-    {
-      p_fw_v2(400);
-      ninety_leftdegree_turn();
-      break; // 任一感測器讀到黑線，停止循跡
-    }
-    else
-    {
+  SPI.begin(Hardware.tftSck, -1, Hardware.tftMosi, Hardware.tftCs);
+  tft.initR(kTftInitMode);
+  tft.setRotation(kTftRotation);
+  tft.invertDisplay(false);
+  tft.fillScreen(COLOR_BG);
+  tft.setTextWrap(false);
+  tftReady = true;
 
-      trail();
-    }
-  }
-  trail_to_cross();
-  stop();
-  p_fw_v2(200);
-  stop();
-  delay(100);
-  // //! alpha grab
-
-  // turn_to_grab();
-  // stop();
-  // delay(300);
-  // while (true)
-  // {
-  //   if ((IR_L_read() == 1))
-  //   {
-  //     break;
-  //   }
-  //   m_Right();
-  // }
-  // //*==============到夾貨物的地方============*
-  // trail_to_cross();
-  // p_fw_v2(300);
-  // stop();
-  // delay(300);
-  // while (true)
-  // {
-  //   if ((IR_L_read() == 1) || (IR_M_read() == 1) || (IR_R_read() == 1))
-  //   {
-  //     break;
-  //   }
-  //   m_Left();
-  // }
-  // come_back();
-  // release_by_color();
-  // stop();
-  // delay(100);
-
-  // //! beta grab
-  // p_fw_v2(300);
-  // stop();
-  // delay(300);
-  // prepare_pickup();
-  // stop();
-  // delay(300);
-  
-  // ninety_leftdegree_turn();
-  // stop();
-
-  // delay(300);
-  // p_bw_v2(400);
-  // stop();
-  // delay(300);
-  // trail_to_cross();
-  // stop();
-  // delay(200);
-
-  // p_fw_v2(100);
-  // stop();
-  // delay(300);
-  // detected_color = color_detect();
-  // pickup_object();
-
-  // stop();
-  // delay(300);
-  // p_bw_v2(200);
-  // stop();
-  // delay(300);
-  // ninety_leftdegree_turn();
-  // stop();
-
-  // trail_to_cross();
-  // stop();
-  // p_fw_v2(400);
-  // stop();
-  // delay(300);
-  // b_Right();
-  // delay(150);
-  // while (true)
-  // {
-  //   if (IR_RR_read() == 1)
-  //   {
-  //     break;
-  //   }
-  //   else
-  //   {
-  //     b_Right();
-  //   }
-  // }
-  // stop();
-  // delay(200);
-  // p_bw_v2(200);
-  // stop();
-  // delay(300);
-  // come_back();
-  // release_by_color();
-  // stop();
-  // delay(300);
-  //! gama grab
-  p_fw_v2(00);
-  stop();
-  delay(
-    00);
-  prepare_pickup();
-  stop();
-  delay(300);
-  p_fw_v2(300);
-  stop();
-  delay(300);
-  b_Right();
-  delay(150);
-  while (true)
-  {
-    if (IR_RR_read() == 1)
-    {
-      break;
-    }
-    else
-    {
-      b_Right();
-    }
-  }
-
-  stop();
-
-  delay(300);
-  p_bw_v2(400);
-  stop();
-  delay(300);
-  trail_to_cross();
-  stop();
-  delay(200);
-
-  p_fw_v2(300);
-  stop();
-  delay(300);
-  detected_color = color_detect();
-  pickup_object();
-
-  stop();
-  delay(300);
-  ninety_leftdegree_turn();
-  stop();
-  delay(100);
-
-  trail_to_cross();
-  stop();
-  p_fw_v2(300);
-  stop();
-  delay(300);
-  ninety_leftdegree_turn();
-  stop();
-  delay(50);
-  come_back();
-  release_by_color();
-
-  //?=====================主程式結束=====================
-
-  //! 以下不需要更動
-  //* OLED：持續顯示紅外線狀v態和編碼器值
-  while (true)
-  {
-    oled_show_ir_status(); // 在 OLED 顯示紅外線狀態和編碼器值
-    delay(500);            // 每 500ms 更新一次
-  };
+  bootStartedMs = millis();
+  resetPasswordState();
 }
+
 void loop()
 {
-  // 主迴圈留空，所有功能在 setup() 中完成
+  const uint32_t nowMs = millis();
+  const InputSnapshot input = inputService.update(nowMs);
+  latestInputSnapshot = input;
+  sensorService.update(nowMs);
+
+  if (appState != AppState::Boot && appState != AppState::LockScreen && appState != AppState::MainMenu && input.panicCombo)
+  {
+    exitToMainMenu();
+    showToast("Returned to menu", COLOR_WARN);
+  }
+
+  switch (appState)
+  {
+  case AppState::Boot:
+    if ((nowMs - bootStartedMs) >= kBootDurationMs)
+    {
+      if (kBypassPasswordForButtonTest)
+      {
+        selfTestInitialized = false;
+        selfTestPassLatched = false;
+        changeState(AppState::SelfTest, nowMs);
+      }
+      else if (kBypassPasswordLock)
+      {
+        changeState(AppState::MainMenu, nowMs);
+      }
+      else
+      {
+        changeState(AppState::LockScreen, nowMs);
+      }
+    }
+    break;
+  case AppState::LockScreen:
+    handlePasswordInput(input);
+    break;
+  case AppState::MainMenu:
+    handleMainMenu(input);
+    break;
+  case AppState::SensorMonitor:
+    handleSensorMonitor(input);
+    break;
+  case AppState::SelfTest:
+    handleSelfTest(input, nowMs);
+    break;
+  case AppState::GamesMenu:
+    handleGamesMenu(input, nowMs);
+    break;
+  case AppState::Leaderboard:
+    handleLeaderboard(input);
+    break;
+  case AppState::GameRunning:
+    if (activeGame != nullptr)
+    {
+      activeGame->update(nowMs, input, sensorService.snapshot());
+      if (activeGame->isFinished())
+      {
+        finalizeGameResult();
+      }
+    }
+    break;
+  case AppState::GameResult:
+    handleGameResult(input, nowMs);
+    break;
+  }
+
+  if (gamesToastUntilMs <= nowMs)
+  {
+    gamesShowComingSoon = false;
+  }
+  updateRgb(nowMs);
+
+  if ((nowMs - lastRenderMs) >= kRenderIntervalMs)
+  {
+    lastRenderMs = nowMs;
+    renderFrame(nowMs);
+  }
 }
